@@ -9,298 +9,62 @@ import {
   StyleSheet,
   StatusBar,
   Animated,
-  Easing
+  Easing,
+  Share,
+  Image,
 } from 'react-native';
 import Svg, { Path, Rect, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import * as Linking from 'expo-linking';
 
-
 // --- Constants & Types ---
-const COLORS = ['#7bffde', '#cdbaff', '#ffcda8', '#ffb8d1', '#ffd36e'];
-const RIPPLE_COLOR = '#ffffffcc';
-const WALL_COLOR = '#23243a';
-const WALL_GLOW_COLOR = '#7bffde';
-const BG_GRADIENT_START = '#151724';
-const BG_GRADIENT_END = '#343551';
-const SEGMENT_THRESHOLDS = [
-  { radius: 0, segments: 30 },
-  { radius: 40, segments: 60 },
-  { radius: 80, segments: 120 },
-  { radius: 160, segments: 300 },
-  { radius: 260, segments: 600 },
-];
-const MIN_WALLS = 2;
-const MIN_ORBS = 3;
-const ORB_RADIUS = 3;
-const MAX_TAPS = 3;
-const TOP_INFOBAR_HEIGHT = 80;
-const HIGHSCORES_KEY = 'HIGHSCORES_KEY';
+import {
+  WALL_COLORS, ORB_COLORS, RIPPLE_COLORS,
+  BG_GRADIENT_START, BG_GRADIENT_END,
+  ORB_SKINS, SEGMENT_THRESHOLDS, MAX_TAPS
+} from './src/constants';
 
-type Ripple = { x: number; y: number; radius: number; limits: number[]; segments: number };
-type Wall = { x: number; y: number; width: number; height: number };
-type Orb = {
-  id: number;
-  x: number;
-  y: number;
-  radius: number;
-  collected: boolean;
-  fade?: Animated.Value;
-  scale?: Animated.Value;
-};
-type Burst = { x: number; y: number; radius: number; opacity: number };
-type Screen = 'menu' | 'game' | 'scores' | 'gameover';
-type HighScoreEntry = { score: number; level: number };
+import {
+  Orb,
+  Ripple,
+  WallSpark,
+  Burst,
+} from './src/types';
 
-function getSegmentsForRadius(radius: number, currentSegments: number) {
-  let nextSegments = currentSegments;
-  for (let i = SEGMENT_THRESHOLDS.length - 1; i >= 0; i--) {
-    if (radius > SEGMENT_THRESHOLDS[i].radius) {
-      nextSegments = Math.max(currentSegments, SEGMENT_THRESHOLDS[i].segments);
-      break;
-    }
-  }
-  return nextSegments;
-}
+import {
+  getSegmentsForRadius,
+  generateLimits,
+  getEquippedSkin,
+  setEquippedSkin,
+  getPlayerPoints,
+  storePlayerPoints,
+  unlockSkin,
+  getUnlockedSkins,
+  saveHighScore,
+  getHighScores,
+  generateWalls,
+  generateOrbs,
+} from './src/utils/game';
 
-function generateLimits(x: number, y: number, segments: number, width: number, height: number, walls: Wall[]) {
-  const limits = new Array(segments);
-  for (let i = 0; i < segments; i++) {
-    const angle = (i / segments) * 2 * Math.PI;
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    let minDist = Math.hypot(width, height);
-    for (let w = 0; w < walls.length; w++) {
-      const wall = walls[w];
-      if (dx) {
-        const edgeXs = [wall.x, wall.x + wall.width];
-        for (let e = 0; e < 2; e++) {
-          const t = (edgeXs[e] - x) / dx;
-          if (t > 0 && t < minDist) {
-            const yi = y + dy * t;
-            if (yi >= wall.y && yi <= wall.y + wall.height) minDist = t;
-          }
-        }
-      }
-      if (dy) {
-        const edgeYs = [wall.y, wall.y + wall.height];
-        for (let e = 0; e < 2; e++) {
-          const t = (edgeYs[e] - y) / dy;
-          if (t > 0 && t < minDist) {
-            const xi = x + dx * t;
-            if (xi >= wall.x && xi <= wall.x + wall.width) minDist = t;
-          }
-        }
-      }
-    }
-    limits[i] = minDist;
-  }
-  return limits;
-}
+import AnimatedOrbBlastTitle from './src/components/AnimatedOrbBlastTitle';
+import MemoOrbs from './src/components/MemoOrbs';
+import InlineColorPickerPanel from './src/components/InlineColorPickerPanel';
+import { styles } from './src/styles';
 
-// --- Highscore helpers ---
-async function saveHighScore(newScore: number, newLevel: number) {
-  try {
-    const raw = await AsyncStorage.getItem(HIGHSCORES_KEY);
-    let scores: HighScoreEntry[] = raw ? JSON.parse(raw) : [];
-    scores.push({ score: newScore, level: newLevel });
-    scores = scores
-      .sort((a, b) => b.score - a.score || b.level - a.level)
-      .slice(0, 5);
-    await AsyncStorage.setItem(HIGHSCORES_KEY, JSON.stringify(scores));
-    return scores;
-  } catch (e) {
-    return [];
-  }
-}
-async function getHighScores(): Promise<HighScoreEntry[]> {
-  try {
-    const raw = await AsyncStorage.getItem(HIGHSCORES_KEY);
-    if (!raw) return [];
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      await AsyncStorage.removeItem(HIGHSCORES_KEY);
-      return [];
-    }
-  } catch (e) {
-    return [];
-  }
-}
-async function clearHighScores() {
-  try {
-    await AsyncStorage.removeItem(HIGHSCORES_KEY);
-  } catch (e) {}
-}
-
-// Wall and Orb generation:
-function generateWalls(width: number, height: number, level: number): Wall[] {
-  const count = MIN_WALLS + level;
-  const out: Wall[] = [];
-  for (let i = 0; i < count; i++) {
-    const horizontal = Math.random() < 0.5;
-    if (horizontal) {
-      const w = 50 + Math.random() * width * 0.4;
-      const x = Math.random() * (width - w);
-      const y = Math.random() * height;
-      out.push({ x, y, width: w, height: 12 });
-    } else {
-      const h = 50 + Math.random() * height * 0.4;
-      const x = Math.random() * width;
-      const y = Math.random() * (height - h);
-      out.push({ x, y, width: 12, height: h });
-    }
-  }
-  return out;
-}
-let globalOrbId = 1;
-function generateOrbs(width: number, height: number, walls: Wall[], level: number): Orb[] {
-  const count = MIN_ORBS + level;
-  const out: Orb[] = [];
-  let attempts = 0;
-  const topOffset = TOP_INFOBAR_HEIGHT;
-  while (out.length < count && attempts < count * 10) {
-    attempts++;
-    const x = ORB_RADIUS + Math.random() * (width - 2 * ORB_RADIUS);
-    const y = ORB_RADIUS + topOffset + Math.random() * (height - 2 * ORB_RADIUS - topOffset);
-    const safe = !walls.some(w =>
-      x > w.x - ORB_RADIUS && x < w.x + w.width + ORB_RADIUS &&
-      y > w.y - ORB_RADIUS && y < w.y + w.height + ORB_RADIUS
-    );
-    if (safe) out.push({
-      id: globalOrbId++,
-      x, y, radius: ORB_RADIUS, collected: false,
-      fade: new Animated.Value(1),
-      scale: new Animated.Value(1)
-    });
-  }
-  return out;
-}
-
-// --- Memoized Orbs Drawing ---
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const MemoOrbs = React.memo(
-  function MemoOrbs({ orbs, color }: { orbs: Orb[], color: string }) {
-    return (
-      <>
-        {orbs.map(o => !o.collected && (
-          <React.Fragment key={o.id}>
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius + 7}
-              fill={color}
-              fillOpacity={0.22}
-              style={getOrbAnimStyle(o)}
-            />
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius + 2}
-              fill={color}
-              fillOpacity={0.45}
-              style={getOrbAnimStyle(o)}
-            />
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius}
-              fill="#fff"
-              fillOpacity={0.82}
-              style={{
-                opacity: o.fade as any,
-                ...getOrbAnimStyle(o).transform && { transform: getOrbAnimStyle(o).transform }
-              }}
-            />
-          </React.Fragment>
-        ))}
-      </>
-    );
-  },
-  (prev, next) => prev.color === next.color && prev.orbs === next.orbs
-);
-
-export function AnimatedOrbBlastTitle() {
-  const title = "ORB BLAST";
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let frame;
-    const animate = () => {
-      setTick(t => t + 1);
-      frame = requestAnimationFrame(animate);
-    };
-    animate();
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  const AMPLITUDE = 6;
-  const SPEED = 0.04;
-  const WAVELENGTH = -0.99;
-
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 32 }}>
-      {title.split('').map((char, i) => {
-        const phase = tick * SPEED + i * WAVELENGTH;
-        const y = Math.sin(phase) * AMPLITUDE;
-        return (
-          <Text
-            key={i}
-            style={[
-              styles.title, // Use your global .title but override below
-              {
-                fontSize: 64, // MAKE IT BIG!
-                color: COLORS[i % COLORS.length],
-                transform: [{ translateY: y }],
-                marginLeft: 0, // Remove extra margin/spacing if any
-                marginRight: 0,
-                padding: 0,
-              },
-            ]}
-          >
-            {char}
-          </Text>
-        );
-      })}
-    </View>
-  );
-}
-
-function getOrbAnimStyle(o: Orb) {
-  return {
-    transform: [
-      { translateX: o.x },
-      { translateY: o.y },
-      { scale: Animated.multiply(
-          o.scale ?? 1,
-          (o.fade as Animated.Value).interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.1, 1]
-          })
-        )
-      },
-      { translateX: -o.x },
-      { translateY: -o.y },
-    ]
-  };
-}
-
-// ---- Main App ----
 export default function App() {
   const { width, height } = Dimensions.get('window');
-  const [screen, setScreen] = useState<Screen>('menu');
+  const [screen, setScreen] = useState('menu');
   const [level, setLevel] = useState(1);
   const [tapsUsed, setTapsUsed] = useState(0);
   const [score, setScore] = useState(0);
 
-  const [walls, setWalls] = useState<Wall[]>(() => generateWalls(width, height, 1));
-  const [orbs, setOrbs] = useState<Orb[]>(() => generateOrbs(width, height, walls, 1));
-  const [ripples, setRipples] = useState<Ripple[]>([]);
-  const [bursts, setBursts] = useState<Burst[]>([]);
-  const [wallSparks, setWallSparks] = useState<Burst[]>([]);
-  const [color, setColor] = useState(COLORS[0]);
-  const [highScores, setHighScores] = useState<HighScoreEntry[]>([]);
+  const [walls, setWalls] = useState(() => generateWalls(width, height, 1));
+  const [orbs, setOrbs] = useState(() => generateOrbs(width, height, walls, 1));
+  const [ripples, setRipples] = useState([]);
+  const [bursts, setBursts] = useState([]);
+  const [wallSparks, setWallSparks] = useState([]);
+  const [highScores, setHighScores] = useState([]);
   const [canContinue, setCanContinue] = useState(false);
   const [muteOrbSound, setMuteOrbSound] = useState(false);
   const [muteMenuMusic, setMuteMenuMusic] = useState(false);
@@ -312,31 +76,93 @@ export default function App() {
   const barAnim = useRef(new Animated.Value(0)).current;
   const gameOverAnim = useRef(new Animated.Value(0)).current;
 
+  const [selectedWallColor, setSelectedWallColor] = useState(WALL_COLORS[0]);
+  const [selectedOrbColor, setSelectedOrbColor] = useState(ORB_COLORS[0]);
+  const [selectedRippleColor, setSelectedRippleColor] = useState(RIPPLE_COLORS[0]);
+  const [colorPanelOpen, setColorPanelOpen] = useState(false);
+
   // --- Audio ---
   const orbSoundRef = useRef<Audio.Sound | null>(null);
   const wallSoundRef = useRef<Audio.Sound | null>(null);
   const wallButtonSoundPlaying = useRef(false);
-
-  // --- Menu Music: Fade In/Out ---
   const menuMusicRef = useRef<Audio.Sound | null>(null);
+  const winSoundRef = useRef<Audio.Sound | null>(null);
+  const loseSoundRef = useRef<Audio.Sound | null>(null);
+  
+  // points and pngs
+  const [playerPoints, setPlayerPoints] = useState(0);
+  const [unlockedSkins, setUnlockedSkins] = useState([]);
+  const [equippedSkin, setEquippedSkinState] = useState('default');
 
+  // --- Win/Lose Sounds (FIXED: define here and use below)
+  const playWinSound = useCallback(async () => {
+    try {
+      if (winSoundRef.current) {
+        await winSoundRef.current.setPositionAsync(0);
+        await winSoundRef.current.playAsync();
+      }
+    } catch (e) {}
+  }, []);
+  const playLoseSound = useCallback(async () => {
+    try {
+      if (loseSoundRef.current) {
+        await loseSoundRef.current.setPositionAsync(0);
+        await loseSoundRef.current.playAsync();
+      }
+    } catch (e) {}
+  }, []);
+
+useEffect(() => {
+  if (screen === 'shop') {
+    (async () => {
+      setUnlockedSkins(await getUnlockedSkins());
+      setPlayerPoints(await getPlayerPoints());
+      setEquippedSkinState(await getEquippedSkin());
+    })();
+  }
+}, [screen]);
+
+  //Tutorial shown
+  useEffect(() => {
+  (async () => {
+    const tutorialShown = await AsyncStorage.getItem('TUTORIAL_SHOWN');
+    if (!tutorialShown) {
+      setScreen('tutorial');
+    }
+  })();
+}, []);
+
+  // points logic
+  useEffect(() => {
+  (async () => {
+    const pts = await getPlayerPoints();
+    setPlayerPoints(pts);
+  })();
+}, [screen]); // refreshes whenever screen changes
+  
+  // --- Menu Music: Fade In/Out ---
   useEffect(() => {
   let isMounted = true;
-  let fadeInterval: any = null;
+  let fadeInterval: ReturnType<typeof setInterval> | null = null;
 
   async function playMenuMusic() {
     if (muteMenuMusic) return;
     if (menuMusicRef.current) {
       let target = 1;
       let vol = 0.25;
-      try { vol = await menuMusicRef.current.getStatusAsync().then(s => s.volume ?? 0.25); } catch {}
-      clearInterval(fadeInterval);
+      try {
+        const status = await menuMusicRef.current.getStatusAsync();
+        vol = status.volume ?? 0.25;
+      } catch {}
+      if (fadeInterval) clearInterval(fadeInterval);
       fadeInterval = setInterval(async () => {
         vol += 0.06;
         if (menuMusicRef.current && vol <= target) {
           await menuMusicRef.current.setVolumeAsync(Math.min(vol, target));
         }
-        if (vol >= target) clearInterval(fadeInterval);
+        if (vol >= target && fadeInterval) {
+          clearInterval(fadeInterval);
+        }
       }, 60);
       return;
     }
@@ -344,98 +170,98 @@ export default function App() {
     try {
       await sound.loadAsync(require('./assets/sounds/menu-music.mp3'));
       await sound.setIsLoopingAsync(true);
-      await sound.setVolumeAsync(0); // Start silent
+      await sound.setVolumeAsync(0);
       await sound.playAsync();
       if (isMounted) {
         menuMusicRef.current = sound;
         let vol = 0;
+        if (fadeInterval) clearInterval(fadeInterval);
         fadeInterval = setInterval(async () => {
           vol += 0.06;
           if (menuMusicRef.current && vol <= 1) {
             await menuMusicRef.current.setVolumeAsync(Math.min(vol, 1));
           }
-          if (vol >= 1) clearInterval(fadeInterval);
+          if (vol >= 1 && fadeInterval) {
+            clearInterval(fadeInterval);
+          }
         }, 60);
       }
     } catch (e) {}
   }
 
-  async function fadeMenuMusicToLow() {
-    if (menuMusicRef.current) {
-      let target = 0.25;
-      let vol = 1;
-      try { vol = await menuMusicRef.current.getStatusAsync().then(s => s.volume ?? 1); } catch {}
+    async function fadeMenuMusicToLow() {
+      if (menuMusicRef.current) {
+        let target = 0.25;
+        let vol = 1;
+        try { vol = await menuMusicRef.current.getStatusAsync().then(s => s.volume ?? 1); } catch {}
+        clearInterval(fadeInterval);
+        fadeInterval = setInterval(async () => {
+          vol -= 0.06;
+          if (menuMusicRef.current && vol >= target) {
+            await menuMusicRef.current.setVolumeAsync(Math.max(vol, target));
+          }
+          if (vol <= target) clearInterval(fadeInterval);
+        }, 50);
+      }
+    }
+
+    async function muteMusicNow() {
+      if (menuMusicRef.current) {
+        await menuMusicRef.current.setVolumeAsync(0);
+      }
+    }
+
+    if (muteMenuMusic) {
+      muteMusicNow();
+      return;
+    }
+
+    if (screen === "menu") {
+      playMenuMusic();
+    } else {
+      fadeMenuMusicToLow();
+    }
+
+    return () => {
+      isMounted = false;
       clearInterval(fadeInterval);
-      fadeInterval = setInterval(async () => {
-        vol -= 0.06;
-        if (menuMusicRef.current && vol >= target) {
-          await menuMusicRef.current.setVolumeAsync(Math.max(vol, target));
-        }
-        if (vol <= target) clearInterval(fadeInterval);
-      }, 50);
-    }
-  }
-
-  async function muteMusicNow() {
-    if (menuMusicRef.current) {
-      await menuMusicRef.current.setVolumeAsync(0);
-    }
-  }
-
-  if (muteMenuMusic) {
-    muteMusicNow();
-    return;
-  }
-
-  if (screen === "menu") {
-    playMenuMusic();
-  } else {
-    fadeMenuMusicToLow();
-  }
-
-  return () => {
-    isMounted = false;
-    clearInterval(fadeInterval);
-  };
-}, [screen, muteMenuMusic]);
-
-
+    };
+  }, [screen, muteMenuMusic]);
 
   const playOrbSound = useCallback(async () => {
-  if (muteOrbSound) return;
-  try {
-    const sound = new Audio.Sound();
-    await sound.loadAsync(require('./assets/sounds/orb.mp3'));
-    await sound.setVolumeAsync(0.7 + Math.random() * 0.2);
-    await sound.setRateAsync(0.95 + Math.random() * 0.10, false);
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync();
-      }
-    });
-  } catch (e) {}
-}, [muteOrbSound]);
-
-const playWallSound = useCallback(async () => {
-  if (muteOrbSound) return;
-  if (wallButtonSoundPlaying.current) return;
-  wallButtonSoundPlaying.current = true;
-  try {
-    if (wallSoundRef.current) {
-      await wallSoundRef.current.setPositionAsync(0);
-      await wallSoundRef.current.playAsync();
-      wallSoundRef.current.setOnPlaybackStatusUpdate((status) => {
+    if (muteOrbSound) return;
+    try {
+      const sound = new Audio.Sound();
+      await sound.loadAsync(require('./assets/sounds/orb.mp3'));
+      await sound.setVolumeAsync(0.7 + Math.random() * 0.2);
+      await sound.setRateAsync(0.95 + Math.random() * 0.10, false);
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
-          wallButtonSoundPlaying.current = false;
+          sound.unloadAsync();
         }
       });
-    }
-  } catch (e) {
-    wallButtonSoundPlaying.current = false;
-  }
-}, [muteOrbSound]);
+    } catch (e) {}
+  }, [muteOrbSound]);
 
+  const playWallSound = useCallback(async () => {
+    if (muteOrbSound) return;
+    if (wallButtonSoundPlaying.current) return;
+    wallButtonSoundPlaying.current = true;
+    try {
+      if (wallSoundRef.current) {
+        await wallSoundRef.current.setPositionAsync(0);
+        await wallSoundRef.current.playAsync();
+        wallSoundRef.current.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            wallButtonSoundPlaying.current = false;
+          }
+        });
+      }
+    } catch (e) {
+      wallButtonSoundPlaying.current = false;
+    }
+  }, [muteOrbSound]);
 
   useEffect(() => {
     let isMounted = true;
@@ -443,11 +269,17 @@ const playWallSound = useCallback(async () => {
       try {
         const orb = new Audio.Sound();
         const wall = new Audio.Sound();
+        const win = new Audio.Sound();
+        const lose = new Audio.Sound();
         await orb.loadAsync(require('./assets/sounds/orb.mp3'));
         await wall.loadAsync(require('./assets/sounds/wall.mp3'));
+        await win.loadAsync(require('./assets/sounds/win.mp3'));
+        await lose.loadAsync(require('./assets/sounds/lose.mp3'));
         if (isMounted) {
           orbSoundRef.current = orb;
           wallSoundRef.current = wall;
+          winSoundRef.current = win;
+          loseSoundRef.current = lose;
         }
       } catch (e) { }
     })();
@@ -455,12 +287,11 @@ const playWallSound = useCallback(async () => {
       isMounted = false;
       orbSoundRef.current?.unloadAsync();
       wallSoundRef.current?.unloadAsync();
+      winSoundRef.current?.unloadAsync();
+      loseSoundRef.current?.unloadAsync();
     };
   }, []);
 
-
-
-  // --- Animate Game Over screen ---
   useEffect(() => {
     if (screen === 'gameover') {
       Animated.timing(gameOverAnim, {
@@ -474,12 +305,36 @@ const playWallSound = useCallback(async () => {
     }
   }, [screen]);
 
+  useEffect(() => {
+  (async () => {
+    setEquippedSkinState(await getEquippedSkin());
+    setUnlockedSkins(await getUnlockedSkins());
+    setPlayerPoints(await getPlayerPoints());
+  })();
+}, []); // runs only on first mount
+
+  useEffect(() => {
+  if (screen === 'gameover') {
+    (async () => {
+      // 1. Save high score
+      const scores = await saveHighScore(score, level);
+      setHighScores(scores);
+
+      // 2. Add score to player's points (storage and state!)
+      const currentPts = await getPlayerPoints();
+      const newPts = currentPts + score;
+      await storePlayerPoints(newPts);   // store in AsyncStorage
+      setPlayerPoints(newPts);           // update React state
+    })();
+  }
+}, [screen]);
+
   // --- Stable Refs for Mutable State ---
-  const orbsRef = useRef<Orb[]>(orbs);
+  const orbsRef = useRef(orbs);
   useEffect(() => { orbsRef.current = orbs; }, [orbs]);
-  const ripplesRef = useRef<Ripple[]>(ripples);
+  const ripplesRef = useRef(ripples);
   useEffect(() => { ripplesRef.current = ripples; }, [ripples]);
-  const wallsRef = useRef<Wall[]>(walls);
+  const wallsRef = useRef(walls);
   useEffect(() => { wallsRef.current = walls; }, [walls]);
 
   useEffect(() => {
@@ -499,90 +354,105 @@ const playWallSound = useCallback(async () => {
 
   // --- Main Game Loop: Animate ripples ---
   useEffect(() => {
-    let frame: number;
-    const animate = () => {
-      setRipples(prevRipples => {
-        let changed = false;
-        const nextRipples: Ripple[] = [];
-        const newSparks: Burst[] = [];
-        let wallHitThisFrame = false;
-        for (const ripple of ripplesRef.current) {
-          const targetSegments = getSegmentsForRadius(ripple.radius, ripple.segments);
-          let updatedLimits = ripple.limits;
-          if (targetSegments > ripple.segments) {
-            updatedLimits = generateLimits(ripple.x, ripple.y, targetSegments, width, height, wallsRef.current);
-            changed = true;
-          }
-          const newRadius = ripple.radius + 2;
-          if (newRadius < Math.hypot(width, height)) {
-            for (let j = 0; j < targetSegments; j++) {
-              const limit = updatedLimits[j];
-              if (ripple.radius < limit && newRadius >= limit) {
-                const angle = (j / targetSegments) * 2 * Math.PI;
-                const sx = ripple.x + Math.cos(angle) * limit;
-                const sy = ripple.y + Math.sin(angle) * limit;
-                newSparks.push({ x: sx, y: sy, radius: 0, opacity: 1 });
-                wallHitThisFrame = true;
-              }
-            }
-            nextRipples.push({ ...ripple, radius: newRadius, segments: targetSegments, limits: updatedLimits });
-          }
+  let frame: number;
+  const animate = () => {
+    setRipples((prevRipples: Ripple[]) => {
+      let changed = false;
+      const nextRipples: Ripple[] = [];
+      const newSparks: WallSpark[] = [];
+      let wallHitThisFrame = false;
+      // Type assertion for ripplesRef (optional but safe)
+      for (const ripple of ripplesRef.current as Ripple[]) {
+        const targetSegments = getSegmentsForRadius(ripple.radius, ripple.segments);
+        let updatedLimits = ripple.limits;
+        if (targetSegments > ripple.segments) {
+          updatedLimits = generateLimits(
+            ripple.x,
+            ripple.y,
+            targetSegments,
+            width,
+            height,
+            wallsRef.current
+          );
+          changed = true;
         }
-        setWallSparks(ws =>
-          ws
-            .map(w => ({ ...w, radius: w.radius + 3, opacity: w.opacity - 0.08 }))
-            .filter(w => w.opacity > 0)
-            .concat(newSparks)
-            .slice(-50)
-        );
-        setOrbs(obs => {
-          let didUpdate = false;
-          const newOrbs = obs.map((o) => {
-            if (o.collected) return o;
-            let hit = false;
-            for (let k = 0; k < ripplesRef.current.length; k++) {
-              const r = ripplesRef.current[k];
-              const angle = Math.atan2(o.y - r.y, o.x - r.x);
-              const dist = Math.hypot(o.x - r.x, o.y - r.y);
-              const segIdx = Math.floor(((angle + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI) * r.segments);
-              if (dist <= r.radius && dist <= r.limits[segIdx]) hit = true;
+        const newRadius = ripple.radius + 2;
+        if (newRadius < Math.hypot(width, height)) {
+          for (let j = 0; j < targetSegments; j++) {
+            const limit = updatedLimits[j];
+            if (ripple.radius < limit && newRadius >= limit) {
+              const angle = (j / targetSegments) * 2 * Math.PI;
+              const sx = ripple.x + Math.cos(angle) * limit;
+              const sy = ripple.y + Math.sin(angle) * limit;
+              newSparks.push({ x: sx, y: sy, radius: 0, opacity: 1 });
+              wallHitThisFrame = true;
             }
-            if (hit) {
-              didUpdate = true;
-              playOrbSound();
-              setScore(s => s + 1);
-              setBursts(bs =>
-                [...bs, { x: o.x, y: o.y, radius: 0, opacity: 1 }].slice(-40)
-              );
-              Animated.timing(o.fade!, {
-                toValue: 0,
-                duration: 320,
-                useNativeDriver: true
-              }).start();
-              o.collected = true;
-              return o;
-            }
-            return o;
+          }
+          nextRipples.push({
+            ...ripple,
+            radius: newRadius,
+            segments: targetSegments,
+            limits: updatedLimits,
           });
-          return didUpdate ? newOrbs : obs;
+        }
+      }
+      setWallSparks((ws: WallSpark[]) =>
+        ws
+          .map((w) => ({ ...w, radius: w.radius + 3, opacity: w.opacity - 0.08 }))
+          .filter((w) => w.opacity > 0)
+          .concat(newSparks)
+          .slice(-50)
+      );
+      setOrbs((obs: Orb[]) => {
+        let didUpdate = false;
+        const newOrbs = obs.map((o) => {
+          if (o.collected) return o;
+          let hit = false;
+          for (let k = 0; k < (ripplesRef.current as Ripple[]).length; k++) {
+            const r = (ripplesRef.current as Ripple[])[k];
+            const angle = Math.atan2(o.y - r.y, o.x - r.x);
+            const dist = Math.hypot(o.x - r.x, o.y - r.y);
+            const segIdx = Math.floor(
+              (((angle + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI)) * r.segments
+            );
+            if (dist <= r.radius && dist <= r.limits[segIdx]) hit = true;
+          }
+          if (hit) {
+            didUpdate = true;
+            playOrbSound();
+            setScore((s) => s + 1);
+            setBursts((bs: Burst[]) =>
+              [...bs, { x: o.x, y: o.y, radius: 0, opacity: 1 }].slice(-40)
+            );
+            Animated.timing(o.fade, {
+              toValue: 0,
+              duration: 320,
+              useNativeDriver: true,
+            }).start();
+            o.collected = true;
+            return o;
+          }
+          return o;
         });
-        setBursts(bs =>
-          bs
-            .map(b => ({ ...b, radius: b.radius + 4, opacity: b.opacity - 0.07 }))
-            .filter(b => b.opacity > 0)
-            .slice(-40)
-        );
-        return nextRipples;
+        return didUpdate ? newOrbs : obs;
       });
-      frame = requestAnimationFrame(animate);
-    };
+      setBursts((bs: Burst[]) =>
+        bs
+          .map((b) => ({ ...b, radius: b.radius + 4, opacity: b.opacity - 0.07 }))
+          .filter((b) => b.opacity > 0)
+          .slice(-40)
+      );
+      return nextRipples;
+    });
     frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [width, height, JSON.stringify(walls)]);
+  };
+  frame = requestAnimationFrame(animate);
+  return () => cancelAnimationFrame(frame);
+}, [width, height, JSON.stringify(walls)]);
 
   // --- Last orb pulse effect ---
-  const lastOrbIdRef = useRef<number | null>(null);
-  const lastOrbPulseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const lastOrbIdRef = useRef(null);
+  const lastOrbPulseAnimRef = useRef(null);
   useEffect(() => {
     const uncollectedOrbs = orbs.filter(o => !o.collected);
     if (uncollectedOrbs.length === 1) {
@@ -592,13 +462,13 @@ const playWallSound = useCallback(async () => {
         lastOrb.scale?.setValue?.(1);
         lastOrbPulseAnimRef.current = Animated.loop(
           Animated.sequence([
-            Animated.timing(lastOrb.scale!, {
+            Animated.timing(lastOrb.scale, {
               toValue: 2.0,
               duration: 250,
               useNativeDriver: true,
               easing: Easing.linear,
             }),
-            Animated.timing(lastOrb.scale!, {
+            Animated.timing(lastOrb.scale, {
               toValue: 1.0,
               duration: 250,
               useNativeDriver: true,
@@ -640,6 +510,7 @@ const playWallSound = useCallback(async () => {
       setLevelUpPending(true);
       setMuteOrbSound(true);
       setNextLevel(level + 1);
+      playWinSound(); // ---- PLACED CORRECTLY
       setTimeout(() => {
         barAnim.setValue(0);
         setLoading(true);
@@ -665,10 +536,8 @@ const playWallSound = useCallback(async () => {
               setWalls(newWalls);
               setOrbs(generateOrbs(width, height, newWalls, next));
               setTapsUsed(0);
-              setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
               setMuteOrbSound(false);
               setLevelUpPending(false);
-
               Animated.timing(loadingAnim, {
                 toValue: 0,
                 duration: 280,
@@ -682,31 +551,44 @@ const playWallSound = useCallback(async () => {
   }, [orbs, levelUpPending, level, width, height]);
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (tapsUsed >= MAX_TAPS) {
-      timeout = setTimeout(async () => {
-        const orbsAtTimeout = orbsRef.current;
-        if (orbsAtTimeout.some(o => !o.collected)) {
-          setCanContinue(false);
-          const scores = await saveHighScore(score, level);
-          setHighScores(scores);
-          setScreen('gameover');
-        }
-      }, 9000);
-    }
-    return () => { if (timeout) clearTimeout(timeout); };
-  }, [tapsUsed]);
+  let timeout: number;
+  if (tapsUsed >= MAX_TAPS) {
+    timeout = setTimeout(() => {
+      const orbsAtTimeout = orbsRef.current;
+      if (orbsAtTimeout.some(o => !o.collected)) {
+        setCanContinue(false);
+        playLoseSound();
+        setScreen('gameover');
+      }
+    }, 7000);
+  }
+  return () => { if (timeout) clearTimeout(timeout); };
+}, [tapsUsed]);
 
-  const handlePress = useCallback(({ nativeEvent }: any) => {
-    if (screen !== 'game' || tapsUsed >= MAX_TAPS || loading) return;
+
+  const handleShare = async () => {
+  try {
+    await Share.share({
+      message: `I just scored ${score} points on level ${level} in Orb Blast! Can you beat me?`,
+      // If you have a website, add the URL property:
+      // url: 'https://yourgame.com'
+    });
+  } catch (error) {
+    // Optionally handle errors (user cancellation is not an error)
+    // alert('Share failed');
+  }
+};
+
+  const handlePress = useCallback(({ nativeEvent }) => {
+    if (screen !== 'game' || tapsUsed >= MAX_TAPS || loading || colorPanelOpen) return;
     setTapsUsed(u => u + 1);
     const { locationX: x, locationY: y } = nativeEvent;
     const initSegments = SEGMENT_THRESHOLDS[0].segments;
     const limits = generateLimits(x, y, initSegments, width, height, wallsRef.current);
     setRipples(r => [...r, { x, y, radius: 0, limits, segments: initSegments }]);
-  }, [screen, tapsUsed, loading, width, height]);
+  }, [screen, tapsUsed, loading, width, height, colorPanelOpen]);
 
-  const buildPath = useCallback((r: Ripple) => {
+  const buildPath = useCallback((r) => {
     const cutoff = 0.5;
     let path = '';
     let drawing = false;
@@ -743,33 +625,223 @@ const playWallSound = useCallback(async () => {
     </Svg>
   ), [width, height]);
 
-  // ---- SCREENS ----
+  const finishTutorial = async () => {
+  await AsyncStorage.setItem('TUTORIAL_SHOWN', 'yes');
+  setScreen('menu');
+};
 
+  // tutorial screen
+  if (screen === 'tutorial') {
+  return (
+    <View style={styles.tutorialScreen}>
+      <Text style={styles.tutorialTitle}>Welcome to Orb Blast!</Text>
+      <Text style={styles.tutorialText}>
+        - Tap anywhere to launch a blast{'\n'}
+        - The blast collects orbs, but stops at walls{'\n'}
+        - You only get 3 taps per level{'\n'}
+        - Collect all orbs to win!
+      </Text>
+      <TouchableOpacity style={styles.button} onPress={finishTutorial}>
+        <Text style={styles.buttonText}>Got it!</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---- GAME SCREEN ----
+if (screen === 'game') {
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="black" />
+      {GradientBG}
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.topRowPanel}>
+          <View style={styles.panelBlur}>
+            <Text style={styles.scoreText}>Lvl {level}  |  Score {score}  |  Taps {MAX_TAPS - tapsUsed}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {/* Palette Button for Color Picker */}
+            <TouchableOpacity
+              style={{
+                padding: 7, marginRight: 5, borderRadius: 8,
+                backgroundColor: '#2b2d43cc'
+              }}
+              onPress={() => setColorPanelOpen((b) => !b)}
+            >
+              <Text style={{ color: '#7bffde', fontSize: 23, fontWeight: 'bold' }}>🎨</Text>
+            </TouchableOpacity>
+            {/* Menu Button */}
+            <TouchableOpacity style={styles.menuButton} onPress={() => {
+              playWallSound();
+              setCanContinue(true);
+              setScreen('menu');
+            }}>
+              <Text style={styles.menuText}>≡</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+      {/* Inline floating color picker panel */}
+      <InlineColorPickerPanel
+        visible={colorPanelOpen}
+        onClose={() => setColorPanelOpen(false)}
+        selectedWallColor={selectedWallColor}
+        setSelectedWallColor={setSelectedWallColor}
+        selectedOrbColor={selectedOrbColor}
+        setSelectedOrbColor={setSelectedOrbColor}
+        selectedRippleColor={selectedRippleColor}
+        setSelectedRippleColor={setSelectedRippleColor}
+      />
+      <TouchableWithoutFeedback onPress={handlePress}>
+        <View style={StyleSheet.absoluteFill}>
+          {/* ---- SVG Game Canvas ---- */}
+          <Svg width={width} height={height}>
+            {/* Orbs - SVG (default skin) */}
+            {equippedSkin === ORB_SKINS[0].key && (
+              <MemoOrbs orbs={orbs} color={selectedOrbColor} />
+            )}
+
+            {/* Orbs - PNG images for other skins */}
+            {equippedSkin !== ORB_SKINS[0].key && (
+              orbs.map((o) => {
+                if (o.collected) return null;
+                const equippedSkinObj = ORB_SKINS.find(s => s.key === equippedSkin) || ORB_SKINS[0];
+                let opacity = 1;
+                try {
+                  opacity = o.fade?.__getValue?.() ?? 1;
+                } catch (e) {}
+                const pngSize = 18;
+                return (
+                  <Image
+                    key={o.id}
+                    source={equippedSkinObj.file}
+                    style={{
+                      position: 'absolute',
+                      left: o.x - pngSize / 2,
+                      top: o.y - pngSize / 2,
+                      width: pngSize,
+                      height: pngSize,
+                      opacity: opacity,
+                      zIndex: 2,
+                    }}
+                    resizeMode="contain"
+                    pointerEvents="none"
+                  />
+                );
+              })
+            )}
+
+            {/* Bursts, ripples, sparks */}
+            {bursts.map((b, i) => (
+              <Circle key={i} cx={b.x} cy={b.y} r={b.radius} fill={selectedOrbColor} fillOpacity={b.opacity * 0.5} />
+            ))}
+            {ripples.map((r, idx) => (
+              <Path
+                key={idx}
+                d={buildPath(r)}
+                stroke={selectedRippleColor}
+                strokeWidth={4}
+                strokeOpacity={0.33}
+                fill="none"
+              />
+            ))}
+            {wallSparks.map((s, i) => (
+              <Circle key={i} cx={s.x} cy={s.y} r={s.radius} stroke="#fff" strokeWidth={.6} strokeOpacity={s.opacity * 0.5} fill="none" />
+            ))}
+            {/* Static Walls: no animation, no pulse */}
+            {walls.map((w, i) => (
+              <React.Fragment key={i}>
+                <Rect
+                  x={w.x - 6}
+                  y={w.y - 6}
+                  width={w.width + 16}
+                  height={w.height + 16}
+                  rx={20}
+                  fill={selectedWallColor}
+                  fillOpacity={0.01}
+                />
+                <Rect
+                  x={w.x - 2}
+                  y={w.y - 2}
+                  width={w.width + 4}
+                  height={w.height + 4}
+                  rx={14}
+                  fill={selectedWallColor}
+                  fillOpacity={0.23}
+                />
+                <Rect
+                  x={w.x}
+                  y={w.y}
+                  width={w.width}
+                  height={w.height}
+                  rx={7}
+                  fill={selectedWallColor}
+                  fillOpacity={0.93}
+                />
+              </React.Fragment>
+            ))}
+          </Svg>
+        </View>
+      </TouchableWithoutFeedback>
+      {loading && (
+        <Animated.View style={[
+          styles.loadingOverlay,
+          { opacity: loadingAnim }
+        ]}>
+          <Text style={styles.loadingText}>loading level {nextLevel}...</Text>
+          <View style={styles.barContainer}>
+            <View style={styles.barBg}>
+              <Animated.View style={[
+                styles.barFill,
+                {
+                  width: barAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 240]
+                  })
+                }
+              ]} />
+            </View>
+          </View>
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+
+  // ---- MENU SCREEN ----
   if (screen === 'menu') {
     return (
       <View style={styles.menuScreen}>
         {GradientBG}
         <AnimatedOrbBlastTitle />
+        <Text style={{
+  color: '#ffd36e',
+  fontSize: 22,
+  fontWeight: '700',
+  marginBottom: 8,
+  textAlign: 'center'
+}}>
+  Points: {playerPoints}
+</Text>
+
         {canContinue && (
           <TouchableOpacity
             style={styles.button}
             onPress={() => {
-  playWallSound();
-  // Reset fade/scale of all uncollected orbs!
-  setOrbs(currentOrbs => currentOrbs.map(o => {
-    if (!o.collected) {
-      o.fade?.setValue?.(1);
-      o.scale?.setValue?.(1);
-    }
-    return o;
-  }));
-  setScreen('game');
-}}
-
+              playWallSound();
+              setOrbs(currentOrbs => currentOrbs.map(o => {
+                if (!o.collected) {
+                  o.fade?.setValue?.(1);
+                  o.scale?.setValue?.(1);
+                }
+                return o;
+              }));
+              setScreen('game');
+            }}
           >
             <Text style={styles.buttonText}>Continue</Text>
           </TouchableOpacity>
-          
         )}
         <TouchableOpacity
           style={styles.button}
@@ -785,7 +857,6 @@ const playWallSound = useCallback(async () => {
             setRipples([]);
             setBursts([]);
             setWallSparks([]);
-            setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
             setLevelUpPending(false);
             setScreen('game');
           }}
@@ -802,64 +873,67 @@ const playWallSound = useCallback(async () => {
           }}
         >
           <Text style={styles.buttonText}>High Scores</Text>
-          
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => Linking.openURL('http://dig.ccmixter.org/files/Kirkoid/68981')}>
-  <Text style={[styles.credits, { textDecorationLine: 'underline', color: '#7bffde' }]}>
-    ♫ "Slow Down" by Kirkoid
-  </Text>
+        <TouchableOpacity
+  style={styles.button}
+  onPress={() => {
+    playWallSound();
+    setScreen('shop');
+  }}
+>
+  <Text style={styles.buttonText}>Shop</Text>
 </TouchableOpacity>
 
-
-        {/* Tip button (bottom left) */}
+        <TouchableOpacity onPress={() => Linking.openURL('http://dig.ccmixter.org/files/Kirkoid/68981')}>
+          <Text style={[styles.credits, { textDecorationLine: 'underline', color: '#7bffde' }]}>
+            ♫ "Slow Down" by Kirkoid
+          </Text>
+        </TouchableOpacity>
         <View style={{
-  position: 'absolute',
-  left: 18,
-  bottom: 36,
-  flexDirection: 'row',
-  zIndex: 10,
-  alignItems: 'center'
-}}>
-  {/* Coffee Tip Button */}
-  <TouchableOpacity
-    style={{
-      backgroundColor: "#23243acc",
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 9,
-      alignItems: 'center',
-      marginRight: 16
-    }}
-    onPress={() => Linking.openURL('https://venmo.com/u/connorcarmichael')}
-  >
-    <Text style={{ color: '#7bffde', fontSize: 17, fontWeight: 'bold' }}>
-      ☕ Coffee Tip
-    </Text>
-  </TouchableOpacity>
-  {/* Music Mute */}
-  <TouchableOpacity
-    style={{
-      backgroundColor: muteMenuMusic ? "#555a" : "#22284cbb",
-      borderRadius: 16,
-      paddingHorizontal: 15,
-      paddingVertical: 9,
-      alignItems: 'center',
-      marginRight: 10
-    }}
-    onPress={() => setMuteMenuMusic(m => !m)}
-  >
-    <Text style={{ color: '#fff', fontSize: 17 }}>
-      {muteMenuMusic ? "Unmute Music" : "Mute Music"}
-    </Text>
-  </TouchableOpacity>
-  {/* Effects Mute */}
-  
-</View>
-
+          position: 'absolute',
+          left: 18,
+          bottom: 36,
+          flexDirection: 'row',
+          zIndex: 10,
+          alignItems: 'center'
+        }}>
+          <TouchableOpacity
+            style={{
+              backgroundColor: "#23243acc",
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 9,
+              alignItems: 'center',
+              marginRight: 16
+            }}
+            onPress={() => Linking.openURL('https://venmo.com/u/connorcarmichael')}
+          >
+            <Text style={{ color: '#7bffde', fontSize: 17, fontWeight: 'bold' }}>
+              ☕ Coffee Tip
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{
+              backgroundColor: muteMenuMusic ? "#555a" : "#22284cbb",
+              borderRadius: 16,
+              paddingHorizontal: 15,
+              paddingVertical: 9,
+              alignItems: 'center',
+              marginRight: 10,
+              left: 145,
+            }}
+            onPress={() => setMuteMenuMusic(m => !m)}
+          >
+            <Text style={{ color: '#fff', fontSize: 17 }}>
+              {muteMenuMusic ? "Unmute Music" : "Mute Music"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
+  // ---- SCORES SCREEN ----
   if (screen === 'scores') {
     return (
       <SafeAreaView style={styles.container}>
@@ -885,21 +959,125 @@ const playWallSound = useCallback(async () => {
             ))
           )}
         </View>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={async () => {
-            playWallSound();
-            await clearHighScores();
-            const scores = await getHighScores();
-            setHighScores(scores);
-          }}
-        >
-          <Text style={styles.buttonText}>Clear High Scores</Text>
-        </TouchableOpacity>
       </SafeAreaView>
     );
   }
 
+  // ---- SHOP SCREEN ----
+
+if (screen === 'shop') {
+  const handleBuy = async (skinKey, price) => {
+  if (playerPoints < price) return;
+
+  const newPoints = playerPoints - price;
+  await storePlayerPoints(newPoints); // This saves the new value to AsyncStorage
+  setPlayerPoints(newPoints);         // This updates your React state
+
+  await unlockSkin(skinKey);
+  setUnlockedSkins(await getUnlockedSkins());
+  };
+  const handleEquip = async (skinKey) => {
+  await setEquippedSkin(skinKey);
+  setEquippedSkinState(skinKey); // update local state for UI
+  };
+
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {GradientBG}
+      <Text style={{
+        color: '#ffd36e', fontSize: 22, fontWeight: 'bold',
+        textAlign: 'center', marginBottom: 10, marginTop: 8,
+      }}>
+        Points: {playerPoints}
+      </Text>
+      <View style={{
+        flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start',
+        marginTop: 10,
+      }}>
+        {ORB_SKINS.filter(skin => skin.key !== 'default').map(skin => {
+  const owned = unlockedSkins.includes(skin.key);
+  const isEquipped = equippedSkin === skin.key;
+  return (
+    <View key={skin.key} style={{
+      width: 82, margin: 10, alignItems: 'center', opacity: owned ? 1 : 0.65,
+    }}>
+      <View style={{
+        borderWidth: owned ? 2 : 0, borderColor: '#7bffde', borderRadius: 44,
+        padding: 4, backgroundColor: '#20223b', marginBottom: 2,
+      }}>
+        <Image
+          source={skin.file}
+          style={{ width: 54, height: 54, borderRadius: 27 }}
+          resizeMode="contain"
+        />
+      </View>
+      <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 2 }}>
+        {skin.price}
+      </Text>
+      {!owned && (
+        <TouchableOpacity
+          style={{
+            backgroundColor: playerPoints >= skin.price ? '#7bffde' : '#444a',
+            borderRadius: 14, paddingHorizontal: 14, paddingVertical: 6, marginTop: 2,
+          }}
+          disabled={playerPoints < skin.price}
+          onPress={() => handleBuy(skin.key, skin.price)}
+        >
+          <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 16 }}>Buy</Text>
+        </TouchableOpacity>
+      )}
+      {owned && !isEquipped && (
+        <TouchableOpacity
+          style={{
+            backgroundColor: '#7bffde',
+            borderRadius: 14, paddingHorizontal: 14, paddingVertical: 6, marginTop: 2,
+          }}
+          onPress={() => handleEquip(skin.key)}
+        >
+          <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 16 }}>Equip</Text>
+        </TouchableOpacity>
+      )}
+      {owned && isEquipped && (
+        <Text style={{ color: '#7bffde', fontSize: 13, marginTop: 4, fontWeight: 'bold' }}>Equipped</Text>
+      )}
+      {owned && isEquipped && equippedSkin !== "default" && (
+  <TouchableOpacity
+    style={{
+      backgroundColor: '#ffd36e',
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      marginTop: 2,
+    }}
+    onPress={async () => {
+      await setEquippedSkin("default");
+      setEquippedSkinState("default");
+    }}
+  >
+    <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 14 }}>
+      Unequip
+    </Text>
+  </TouchableOpacity>
+)}
+
+
+    </View>
+  );
+})}
+
+
+      </View>
+      <TouchableOpacity style={styles.button} onPress={() => setScreen('menu')}>
+        <Text style={styles.buttonText}>Back</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+}
+
+
+  
+  // ---- GAME OVER SCREEN ----
   if (screen === 'gameover') {
     return (
       <View style={styles.gameOverScreen}>
@@ -941,217 +1119,22 @@ const playWallSound = useCallback(async () => {
                 setRipples([]);
                 setBursts([]);
                 setWallSparks([]);
-                setColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
                 setLevelUpPending(false);
                 setScreen('game');
               }}
             >
               <Text style={styles.buttonText}>Restart</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity style={styles.button} onPress={handleShare}>
+            <Text style={styles.buttonText}>Share</Text>
+          </TouchableOpacity>
           </View>
         </Animated.View>
       </View>
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="black" />
-      {GradientBG}
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.topRowPanel}>
-          <View style={styles.panelBlur}>
-            <Text style={styles.scoreText}>Lvl {level}  |  Score {score}  |  Taps {MAX_TAPS - tapsUsed}</Text>
-          </View>
-          <TouchableOpacity style={styles.menuButton} onPress={() => {
-            playWallSound();
-            setCanContinue(true);
-            setScreen('menu');
-          }}>
-            <Text style={styles.menuText}>≡</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-      <TouchableWithoutFeedback onPress={handlePress}>
-        <View style={StyleSheet.absoluteFill}>
-          <Svg width={width} height={height}>
-            <MemoOrbs orbs={orbs} color={color} />
-            {bursts.map((b, i) => (
-              <Circle key={i} cx={b.x} cy={b.y} r={b.radius} fill={color} fillOpacity={b.opacity * 0.5} />
-            ))}
-            {ripples.map((r, idx) => (
-              <Path
-                key={idx}
-                d={buildPath(r)}
-                stroke={RIPPLE_COLOR}
-                strokeWidth={4}
-                strokeOpacity={0.33}
-                fill="none"
-              />
-            ))}
-            {wallSparks.map((s, i) => (
-              <Circle key={i} cx={s.x} cy={s.y} r={s.radius} stroke="#fff" strokeWidth={.6} strokeOpacity={s.opacity * 0.5} fill="none" />
-            ))}
-            {walls.map((w, i) => (
-              <React.Fragment key={i}>
-                <Rect
-                  x={w.x - 6}
-                  y={w.y - 6}
-                  width={w.width + 16}
-                  height={w.height + 16}
-                  rx={20}
-                  fill={WALL_GLOW_COLOR}
-                  fillOpacity={0.01}
-                />
-                <Rect
-                  x={w.x - 2}
-                  y={w.y - 2}
-                  width={w.width + 4}
-                  height={w.height + 4}
-                  rx={14}
-                  fill={WALL_GLOW_COLOR}
-                  fillOpacity={0.23}
-                />
-                <Rect
-                  x={w.x}
-                  y={w.y}
-                  width={w.width}
-                  height={w.height}
-                  rx={7}
-                  fill={WALL_COLOR}
-                  fillOpacity={0.93}
-                />
-              </React.Fragment>
-            ))}
-          </Svg>
-        </View>
-      </TouchableWithoutFeedback>
-      {loading && (
-        <Animated.View style={[
-          styles.loadingOverlay,
-          { opacity: loadingAnim }
-        ]}>
-          <Text style={styles.loadingText}>loading level {nextLevel}...</Text>
-          <View style={styles.barContainer}>
-            <View style={styles.barBg}>
-              <Animated.View style={[
-                styles.barFill,
-                {
-                  width: barAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 240]
-                  })
-                }
-              ]} />
-            </View>
-          </View>
-        </Animated.View>
-      )}
-    </View>
-  );
+  // fallback, never actually hit
+  return null;
 }
-
-// ---- Styles ----
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG_GRADIENT_END },
-  safeArea: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1 },
-  topRowPanel: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 10, marginTop: 8
-  },
-  panelBlur: {
-    paddingHorizontal: 20,
-    paddingVertical: 7,
-    backgroundColor: '#22284cbb',
-    borderRadius: 16,
-    marginRight: 10
-  },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 },
-  menuButton: { padding: 7, marginLeft: 3, borderRadius: 8 },
-  menuText: { color: '#fff', fontSize: 32, opacity: 0.7 },
-  scoreText: { color: '#fff', fontSize: 18, fontWeight: '600', letterSpacing: 1, fontFamily: 'System' },
-  title: {
-    fontSize: 46, color: '#fff', letterSpacing: 4, fontWeight: '800',
-    textShadowColor: '#7bffde99', textShadowRadius: 24, marginBottom: 30, fontFamily: 'System'
-  },
-  menuScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG_GRADIENT_END },
-  button: {
-    backgroundColor: '#22284cbb',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 22,
-    marginVertical: 8,
-    shadowColor: '#fff',
-    shadowOpacity: 0.13,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 9,
-  },
-  buttonText: {
-    color: '#fff', fontSize: 22, letterSpacing: 2, fontWeight: 'bold', fontFamily: 'System'
-  },
-  credits: { color: '#fff', opacity: 0.2, marginTop: 38, fontSize: 15, fontFamily: 'System' },
-  scoresList: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  text: { color: '#fff', fontSize: 18, fontFamily: 'System' },
-  gameOverScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
-  gameOverTitle: {
-    color: '#fff', fontSize: 46, fontWeight: 'bold', marginBottom: 14, letterSpacing: 2, fontFamily: 'System',
-    textShadowColor: '#7bffde', textShadowRadius: 25,
-  },
-  gameOverText: { color: '#fff', fontSize: 22, marginBottom: 28, fontWeight: '600', fontFamily: 'System' },
-  gameOverButtons: { flexDirection: 'row', justifyContent: 'space-around', width: '80%' },
-  muteBtnWrapper: {
-    position: 'absolute',
-    right: 22,
-    bottom: 36,
-    zIndex: 10,
-  },
-  muteButton: {
-    borderRadius: 18,
-    paddingHorizontal: 22,
-    paddingVertical: 10,
-    alignItems: 'center',
-    shadowColor: '#222',
-    shadowOpacity: 0.13,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 7,
-  },
-  // Loading Bar Styles
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(20,22,38,0.99)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 9999,
-  },
-  loadingText: {
-    color: '#7bffde',
-    fontSize: 22,
-    letterSpacing: 2,
-    marginBottom: 32,
-    fontWeight: '700',
-    fontFamily: 'System'
-  },
-  barContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 28,
-  },
-  barBg: {
-    width: 240,
-    height: 14,
-    backgroundColor: '#23243a',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderColor: '#7bffde',
-    borderWidth: 1.2,
-    shadowColor: '#7bffde99',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.13,
-    shadowRadius: 7,
-  },
-  barFill: {
-    height: 14,
-    backgroundColor: '#7bffde',
-    borderRadius: 12,
-  },
-});

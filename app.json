@@ -2,7 +2,7 @@
   "expo": {
     "name": "ORB BLAST",
     "slug": "orb-blast",
-    "version": "1.0.0",
+    "version": "2.1.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -16,7 +16,11 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.carmichaeldivision.orbblast"
+      "buildNumber": "5",
+      "bundleIdentifier": "com.carmichaeldivision.orbblast",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.carmichaeldivision.orbblast",
@@ -25,6 +29,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4632bdfe-93b3-47b1-afea-5a35fdfb9118"
+      }
     }
   }
 }
