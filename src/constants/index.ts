@@ -4,8 +4,24 @@ export const COLORS = ['#7bffde', '#cdbaff', '#ffcda8', '#ffb8d1', '#ffd36e'];
 export const WALL_COLORS = ['#44d4b4', '#fb70b6', '#3c046c', '#caaacc', '#24544c'];
 export const ORB_COLORS = ['#16b1e0', '#304acf', '#da0150', '#f2c50f', '#4cc273'];
 export const RIPPLE_COLORS = ['#ffffffcc', '#cdbaffcc', '#ffb8d1cc', '#ffd36ecc', '#7bffdecc'];
-export const BG_GRADIENT_START = '#151724';
-export const BG_GRADIENT_END = '#343551';
+export const BG_GRADIENT_START = '#141629';
+export const BG_GRADIENT_END = '#181c37';
+
+export const LIGHT_PALETTE = {
+  BG_GRADIENT_START: '#f5f6fa',
+  BG_GRADIENT_END: '#c7d0e5',
+  PANEL: '#ffffffcc',
+  TEXT: '#23243a',
+  ACCENT: '#16b1e0',
+};
+
+export const DARK_PALETTE = {
+  BG_GRADIENT_START: '#141629',
+  BG_GRADIENT_END: '#181c37',
+  PANEL: '#222B45cc',
+  TEXT: '#fff',
+  ACCENT: '#7bffde',
+};
 
 export const ORB_SKINS = [
   { key: 'default', file: null, price: 0 },
@@ -47,3 +63,6 @@ export const HIGHSCORES_KEY = 'HIGHSCORES_KEY';
 export const PLAYER_POINTS_KEY = 'PLAYER_POINTS_KEY';
 export const EQUIPPED_SKIN_KEY = 'EQUIPPED_SKIN_KEY';
 export const UNLOCKED_SKINS_KEY = 'UNLOCKED_SKINS_KEY';
+
+export const MUSIC_VOLUME_KEY = 'MUSIC_VOLUME_KEY';
+export const SOUND_VOLUME_KEY = 'SOUND_VOLUME_KEY';

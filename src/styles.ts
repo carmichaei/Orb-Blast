@@ -41,7 +41,7 @@ export const styles = StyleSheet.create({
   credits: { color: '#fff', opacity: 0.2, marginTop: 38, fontSize: 15, fontFamily: 'System' },
   scoresList: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   text: { color: '#fff', fontSize: 18, fontFamily: 'System', textAlign: 'center' },
-  gameOverScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
+  gameOverScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#101033' },
   gameOverTitle: {
     color: '#fff', fontSize: 46, fontWeight: 'bold', marginBottom: 14, letterSpacing: 2, fontFamily: 'System',
     textShadowColor: '#7bffde', textShadowRadius: 25,
@@ -69,30 +69,29 @@ export const styles = StyleSheet.create({
     height: 28,
   },
   barBg: {
-  width: 240,
-  height: 14,
-  backgroundColor: '#23243a',
-  borderRadius: 12,
-  overflow: 'hidden',
-  borderColor: '#7bffde',
-  borderWidth: 3,
-  shadowColor: '#7bffde99',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.13,
-  shadowRadius: 7,
-  padding: 0,         // Ensure no padding
-},
-
-barFill: {
-  height: 14,         // Match barBg
-  backgroundColor: '#7bffde',
-  borderRadius: 12,   // Match barBg
-  alignSelf: 'flex-start', // Make sure it's top-aligned
-  margin: 0,          // No accidental margin
-  padding: 0,
-  top: -2,
-  left: -2,
-},
+    width: 240,
+    height: 14,
+    backgroundColor: '#23243a',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderColor: '#7bffde',
+    borderWidth: 3,
+    shadowColor: '#7bffde99',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.13,
+    shadowRadius: 7,
+    padding: 0,         // Ensure no padding
+  },
+  barFill: {
+    height: 14,         // Match barBg
+    backgroundColor: '#7bffde',
+    borderRadius: 12,   // Match barBg
+    alignSelf: 'flex-start', // Make sure it's top-aligned
+    margin: 0,          // No accidental margin
+    padding: 0,
+    top: -2,
+    left: -2,
+  },
   // ---- Color Panel Styles ----
   colorPanelOverlay: {
     position: 'absolute',
@@ -133,29 +132,58 @@ barFill: {
     borderRadius: 13,
   },
   tutorialScreen: {
-  flex: 1,
-  justifyContent: 'center',
-  alignItems: 'center',
-  backgroundColor: BG_GRADIENT_END,
-  padding: 24,
-},
-tutorialTitle: {
-  color: '#7bffde',
-  fontSize: 36,
-  fontWeight: 'bold',
-  marginBottom: 20,
-},
-tutorialText: {
-  color: '#fff',
-  fontSize: 20,
-  textAlign: 'center',
-  marginBottom: 36,
-},
-colorRow: {
-  flexDirection: 'row',
-  marginBottom: 12,
-  justifyContent: 'flex-start',
-  flexWrap: 'wrap'
-},
-
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: BG_GRADIENT_END,
+    padding: 24,
+  },
+  tutorialTitle: {
+    color: '#7bffde',
+    fontSize: 36,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  tutorialText: {
+    color: '#fff',
+    fontSize: 20,
+    textAlign: 'center',
+    marginBottom: 36,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    justifyContent: 'flex-start',
+    flexWrap: 'wrap'
+  },
 });
+
+// --- THEME PALETTES --- //
+export const palettes = {
+  dark: {
+    background: '#23243a',          // primary dark background
+    panel: '#1A1B2B',               // menu, block, slider panel
+    text: '#fff',                   // primary text
+    header: '#7bffde',              // accent header/label
+    button: '#2b2d43',              // button bg
+    buttonText: '#7bffde',          // button text
+    sliderTrack: '#7bffde',         // accent color for sliders
+    sliderTrackBg: '#555',          // slider background
+    overlay: 'rgba(20,22,38,0.99)', // overlay backgrounds
+  },
+  light: {
+    background: '#fafafd',          // offwhite app bg
+    panel: '#rgba(202, 207, 224, 0.99)',               // card/menu bg
+    text: '#1a2330',                // main text
+    header: '#197fa5',              // teal/blue accent
+    button: '#dbeafe',              // light blue button bg
+    buttonText: 'rgba(54, 74, 78, 0.99)',          // teal button text
+    sliderTrack: '#42b3d9',         // blue accent
+    sliderTrackBg: '#b2b8bf',       // slider background
+    overlay: 'rgba(235,240,250,0.96)', // overlays
+  },
+};
+
+export function getThemePalette(theme: 'dark' | 'light') {
+  return palettes[theme] || palettes.dark;
+}

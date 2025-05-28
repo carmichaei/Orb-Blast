@@ -4,9 +4,9 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { useGame } from '../context/GameContext';
-import { styles } from '../styles';
+import { styles as globalStyles, getThemePalette } from '../styles';
 import AnimatedOrbBlastTitle from '../components/AnimatedOrbBlastTitle';
-import { getHighScores } from '../utils/game'; // <-- ADD THIS IMPORT
+import { getHighScores } from '../utils/game';
 
 const MenuScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -14,9 +14,12 @@ const MenuScreen: React.FC = () => {
     playerPoints, canContinue, setCanContinue,
     setWalls, setOrbs, setLevel, setScore, setTapsUsed,
     setRipples, setBursts, setWallSparks, setLevelUpPending,
-    startNewGame, 
-    setHighScores
+    startNewGame,
+    setHighScores,
+    theme
   } = useGame();
+
+  const palette = getThemePalette(theme);
 
   const handleContinue = () => {
     navigation.navigate('Game');
@@ -38,10 +41,10 @@ const MenuScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.menuScreen}>
+    <View style={[globalStyles.menuScreen, { backgroundColor: palette.background }]}>
       <AnimatedOrbBlastTitle />
       <Text style={{
-        color: '#ffd36e',
+        color: palette.header,
         fontSize: 22,
         fontWeight: '700',
         marginBottom: 8,
@@ -51,26 +54,34 @@ const MenuScreen: React.FC = () => {
       </Text>
 
       {canContinue && (
-        <TouchableOpacity style={styles.button} onPress={handleContinue}>
-          <Text style={styles.buttonText}>Continue</Text>
+        <TouchableOpacity style={[globalStyles.button, { backgroundColor: palette.button }]} onPress={handleContinue}>
+          <Text style={[globalStyles.buttonText, { color: palette.buttonText }]}>Continue</Text>
         </TouchableOpacity>
       )}
-      <TouchableOpacity style={styles.button} onPress={handleNewGame}>
-        <Text style={styles.buttonText}>New Game</Text>
+      <TouchableOpacity style={[globalStyles.button, { backgroundColor: palette.button }]} onPress={handleNewGame}>
+        <Text style={[globalStyles.buttonText, { color: palette.buttonText }]}>New Game</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={handleShowScores}>
-        <Text style={styles.buttonText}>High Scores</Text>
+      <TouchableOpacity style={[globalStyles.button, { backgroundColor: palette.button }]} onPress={handleShowScores}>
+        <Text style={[globalStyles.buttonText, { color: palette.buttonText }]}>High Scores</Text>
       </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Settings')}>
-            <Text style={styles.buttonText}>Settings</Text>
-        </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={handleOpenShop}>
-        <Text style={styles.buttonText}>Shop</Text>
+      <TouchableOpacity style={[globalStyles.button, { backgroundColor: palette.button }]} onPress={() => navigation.navigate('Settings')}>
+        <Text style={[globalStyles.buttonText, { color: palette.buttonText }]}>Settings</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={[globalStyles.button, { backgroundColor: palette.button }]} onPress={handleOpenShop}>
+        <Text style={[globalStyles.buttonText, { color: palette.buttonText }]}>Shop</Text>
       </TouchableOpacity>
 
       {/* Credits / external links */}
       <TouchableOpacity onPress={() => Linking.openURL('http://dig.ccmixter.org/files/Kirkoid/68981')}>
-        <Text style={[styles.credits, { textDecorationLine: 'underline', color: '#7bffde' }]}>
+        <Text style={[
+          globalStyles.credits,
+          {
+            textDecorationLine: 'underline',
+            color: palette.header,
+            opacity: 0.95,
+            marginTop: 12,
+          }
+        ]}>
           ♫ "Slow Down" by Kirkoid
         </Text>
       </TouchableOpacity>
@@ -83,7 +94,7 @@ const MenuScreen: React.FC = () => {
         alignItems: 'center'
       }}>
         <TouchableOpacity style={{
-          backgroundColor: "#23243acc",
+          backgroundColor: palette.button + "cc",
           borderRadius: 16,
           paddingHorizontal: 16,
           paddingVertical: 9,
@@ -92,7 +103,7 @@ const MenuScreen: React.FC = () => {
         }}
           onPress={() => Linking.openURL('https://venmo.com/u/connorcarmichael')}
         >
-          <Text style={{ color: '#7bffde', fontSize: 17, fontWeight: 'bold' }}>☕ Coffee Tip</Text>
+          <Text style={{ color: palette.header, fontSize: 17, fontWeight: 'bold' }}>☕ Coffee Tip</Text>
         </TouchableOpacity>
       </View>
     </View>

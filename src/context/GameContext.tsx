@@ -1,17 +1,28 @@
-// src/context/GameContext.tsx
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import React, {
+  createContext, useContext, useState, useRef, useEffect, useCallback
+} from 'react';
 import { Dimensions, Animated } from 'react-native';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import {
   WALL_COLORS, ORB_COLORS, RIPPLE_COLORS, MAX_TAPS, ORB_SKINS
 } from '../constants';
 import {
   generateWalls, generateOrbs,
   getPlayerPoints, getEquippedSkin, getUnlockedSkins,
-  saveHighScore
+  getHighScores, saveHighScore       //  ← added getHighScores import
 } from '../utils/game';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/* ---------- Theme ---------- */
+export type ThemeType = 'dark' | 'light';
+const THEME_KEY = 'GAME_THEME';
+
+/* ---------- Volume Keys ---------- */
+const SOUND_VOLUME_KEY = 'SOUND_VOLUME';
+const MUSIC_VOLUME_KEY = 'MUSIC_VOLUME';
+
+/* ---------- Context Interface ---------- */
 interface GameContextValue {
   level: number;
   score: number;
@@ -49,7 +60,7 @@ interface GameContextValue {
   setBursts(b: any[]): void;
   setWallSparks(s: any[]): void;
   setHighScores(h: { score: number; level: number }[]): void;
-  setPlayerPoints(p: number): void; // This will be the persistent setter
+  setPlayerPoints(p: number): void;
   setUnlockedSkins(u: string[]): void;
   setEquippedSkinState(skin: string): void;
   setCanContinue(c: boolean): void;
@@ -63,75 +74,111 @@ interface GameContextValue {
   setSelectedRippleColor(c: string): void;
   setColorPanelOpen(open: boolean): void;
   startNewGame(): void;
-  saveHighScoreAndUpdate(): Promise<void>;
+  saveHighScoreAndUpdate(newScore?: number, newLevel?: number): Promise<void>;   //  ← updated signature
   playOrbSound(): void;
   playWallSound(): void;
   playWinSound(): void;
   playLoseSound(): void;
   toggleMenuMusic(): void;
+
+  /* Theme */
+  theme: ThemeType;
+  setTheme: (theme: ThemeType) => void;
 }
 
 const GameContext = createContext<GameContextValue | undefined>(undefined);
 
 export const useGame = (): GameContextValue => {
   const context = useContext(GameContext);
-  if (!context) throw new Error("useGame must be used within a GameProvider");
+  if (!context) throw new Error('useGame must be used within a GameProvider');
   return context;
 };
+
+/* ========================================================================== */
+/*                               Provider                                     */
+/* ========================================================================== */
 
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { width, height } = Dimensions.get('window');
   const initialWalls = generateWalls(width, height, 1);
-  const initialOrbs = generateOrbs(width, height, initialWalls, 1);
+  const initialOrbs  = generateOrbs(width, height, initialWalls, 1);
 
-  // Volume state
-  const [soundVolume, setSoundVolume] = useState(1);   // For orb, wall, win, lose
-  const [musicVolume, setMusicVolume] = useState(1);   // For menu music
+  /* ---------- Theme ---------- */
+  const [theme, setThemeState] = useState<ThemeType>('dark');
+  useEffect(() => {
+    AsyncStorage.getItem(THEME_KEY).then(t => {
+      if (t === 'light' || t === 'dark') setThemeState(t);
+    });
+  }, []);
+  const setTheme = useCallback((t: ThemeType) => {
+    setThemeState(t);
+    AsyncStorage.setItem(THEME_KEY, t);
+  }, []);
 
-  // Core state
-  const [level, setLevel] = useState(1);
-  const [score, setScore] = useState(0);
-  const [tapsUsed, setTapsUsed] = useState(0);
-  const [walls, setWalls] = useState(initialWalls);
-  const [orbs, setOrbs] = useState(initialOrbs);
-  const [ripples, setRipples] = useState<any[]>([]);
-  const [bursts, setBursts] = useState<any[]>([]);
-  const [wallSparks, setWallSparks] = useState<any[]>([]);
-  const [highScores, setHighScores] = useState<{ score: number; level: number }[]>([]);
-  const [playerPoints, setPlayerPointsRaw] = useState(0); // "Raw" setter not for export
+  /* ---------- Volume ---------- */
+  const [soundVolume, setSoundVolume] = useState(1);
+  const [musicVolume, setMusicVolume] = useState(1);
+
+  /* ---------- Core State ---------- */
+  const [level, setLevel]                 = useState(1);
+  const [score, setScore]                 = useState(0);
+  const [tapsUsed, setTapsUsed]           = useState(0);
+  const [walls, setWalls]                 = useState(initialWalls);
+  const [orbs, setOrbs]                   = useState(initialOrbs);
+  const [ripples, setRipples]             = useState<any[]>([]);
+  const [bursts, setBursts]               = useState<any[]>([]);
+  const [wallSparks, setWallSparks]       = useState<any[]>([]);
+  const [highScores, setHighScores]       = useState<{ score: number; level: number }[]>([]);
+  const [playerPoints, setPlayerPointsRaw]= useState(0);
   const [unlockedSkins, setUnlockedSkins] = useState<string[]>([]);
   const [equippedSkin, setEquippedSkinState] = useState('default');
-  const [canContinue, setCanContinue] = useState(false);
-  const [muteOrbSound, setMuteOrbSound] = useState(false);
+  const [canContinue, setCanContinue]     = useState(false);
+  const [muteOrbSound, setMuteOrbSound]   = useState(false);
   const [muteMenuMusic, setMuteMenuMusic] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [nextLevel, setNextLevel] = useState(2);
+  const [loading, setLoading]             = useState(false);
+  const [nextLevel, setNextLevel]         = useState(2);
   const [levelUpPending, setLevelUpPending] = useState(false);
-  const [selectedWallColor, setSelectedWallColor] = useState(WALL_COLORS[0]);
-  const [selectedOrbColor, setSelectedOrbColor] = useState(ORB_COLORS[0]);
-  const [selectedRippleColor, setSelectedRippleColor] = useState(RIPPLE_COLORS[0]);
+  const [selectedWallColor, setSelectedWallColor]       = useState(WALL_COLORS[0]);
+  const [selectedOrbColor,  setSelectedOrbColor]        = useState(ORB_COLORS[0]);
+  const [selectedRippleColor, setSelectedRippleColor]   = useState(RIPPLE_COLORS[0]);
   const [colorPanelOpen, setColorPanelOpen] = useState(false);
   const gameOverAnim = useRef(new Animated.Value(0)).current;
 
-  // --- AUDIO refs ---
-  const orbSoundRef = useRef<Audio.Sound | null>(null);
+  /* ---------- Audio Refs ---------- */
+  const orbSoundRef  = useRef<Audio.Sound | null>(null);
   const wallSoundRef = useRef<Audio.Sound | null>(null);
-  const winSoundRef = useRef<Audio.Sound | null>(null);
+  const winSoundRef  = useRef<Audio.Sound | null>(null);
   const loseSoundRef = useRef<Audio.Sound | null>(null);
   const menuMusicRef = useRef<Audio.Sound | null>(null);
-  const POOL_SIZE = 4;
-  const orbPoolRef = useRef<Audio.Sound[]>([]);
-  const orbPoolNextRef = useRef(0);
 
-  // --- Load all sounds on mount and unload on unmount ---
+  /* ---------- Audio Pool for Orbs ---------- */
+  const POOL_SIZE = 4;
+  const orbPoolRef    = useRef<Audio.Sound[]>([]);
+  const orbPoolNextRef= useRef(0);
+
+  /* ---------- Load Sounds ---------- */
   useEffect(() => {
     let isMounted = true;
     (async () => {
       try {
-        const orb = new Audio.Sound();
-        const wall = new Audio.Sound();
-        const win = new Audio.Sound();
-        const lose = new Audio.Sound();
+        /* 1. Load saved volume preferences */
+        let loadedSoundVol = 1;
+        let loadedMusicVol = 1;
+        try {
+          const storedSound = await AsyncStorage.getItem(SOUND_VOLUME_KEY);
+          if (storedSound !== null) loadedSoundVol = Number(storedSound);
+          setSoundVolume(loadedSoundVol);
+
+          const storedMusic = await AsyncStorage.getItem(MUSIC_VOLUME_KEY);
+          if (storedMusic !== null) loadedMusicVol = Number(storedMusic);
+          setMusicVolume(loadedMusicVol);
+        } catch {}
+
+        /* 2. Load actual sound files */
+        const orb   = new Audio.Sound();
+        const wall  = new Audio.Sound();
+        const win   = new Audio.Sound();
+        const lose  = new Audio.Sound();
         const music = new Audio.Sound();
 
         await orb.loadAsync(require('../../assets/sounds/orb.mp3'));
@@ -140,17 +187,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await lose.loadAsync(require('../../assets/sounds/lose.mp3'));
         await music.loadAsync(require('../../assets/sounds/menu-music.mp3'));
         await music.setIsLoopingAsync(true);
-        await music.setVolumeAsync(muteMenuMusic ? 0 : musicVolume);
+        await music.setVolumeAsync(muteMenuMusic ? 0 : loadedMusicVol);
 
         if (isMounted) {
-          orbSoundRef.current = orb;
+          orbSoundRef.current  = orb;
           wallSoundRef.current = wall;
-          winSoundRef.current = win;
+          winSoundRef.current  = win;
           loseSoundRef.current = lose;
           menuMusicRef.current = music;
           if (!muteMenuMusic) await music.playAsync();
         }
-      } catch (e) {}
+      } catch {}
     })();
     return () => {
       isMounted = false;
@@ -162,7 +209,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // --- React to menu music volume or mute changes ---
+  /* ---------- React to mute / volume ---------- */
   useEffect(() => {
     const music = menuMusicRef.current;
     if (music) {
@@ -185,7 +232,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // --- Play sound utilities with volume ---
+  /* ---------- Play Sound Helpers ---------- */
   const playOrbSound = useCallback(async () => {
     if (muteOrbSound) return;
     await ensureOrbPool();
@@ -195,9 +242,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await sound.stopAsync();
       await sound.setPositionAsync(0);
-      await sound.setVolumeAsync(soundVolume); // Use the context's soundVolume
+      await sound.setVolumeAsync(soundVolume);
       await sound.playAsync();
-    } catch (e) {}
+    } catch {}
   }, [muteOrbSound, soundVolume]);
 
   const playWallSound = useCallback(() => {
@@ -230,7 +277,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [muteOrbSound, soundVolume]);
 
-  // --- Toggle menu music on/off ---
+  /* ---------- Music Toggle ---------- */
   const toggleMenuMusic = useCallback(() => {
     setMuteMenuMusic(mute => {
       const music = menuMusicRef.current;
@@ -247,25 +294,37 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [musicVolume]);
 
-  // --- Persistent load ---
+  /* ---------- Persistent Loads ---------- */
   useEffect(() => {
     (async () => {
-      setPlayerPointsRaw((await getPlayerPoints()) || 0);
-      setUnlockedSkins((await getUnlockedSkins()) || []);
+      setPlayerPointsRaw((await getPlayerPoints())   || 0);
+      setUnlockedSkins  ((await getUnlockedSkins())  || []);
       setEquippedSkinState((await getEquippedSkin()) || 'default');
+      /* volumes already loaded in sound‑effect useEffect */
     })();
   }, []);
 
-  // PERSISTENT PLAYER POINTS SETTER
-  const setPlayerPoints = useCallback((p: number) => {
-    setPlayerPointsRaw(p);
-    AsyncStorage.setItem('PLAYER_POINTS', p.toString());
+  /* ---------- Persistent Setters ---------- */
+  const setSoundVolumeAndPersist = useCallback((vol: number) => {
+    setSoundVolume(vol);
+    AsyncStorage.setItem(SOUND_VOLUME_KEY, vol.toString());
   }, []);
 
+  const setMusicVolumeAndPersist = useCallback((vol: number) => {
+    setMusicVolume(vol);
+    AsyncStorage.setItem(MUSIC_VOLUME_KEY, vol.toString());
+  }, []);
+
+  const setPlayerPoints = useCallback((pts: number) => {
+    setPlayerPointsRaw(pts);
+    AsyncStorage.setItem('PLAYER_POINTS', pts.toString());
+  }, []);
+
+  /* ---------- New Game ---------- */
   const startNewGame = () => {
-    const w1 = generateWalls(width, height, 1);
-    setWalls(w1);
-    setOrbs(generateOrbs(width, height, w1, 1));
+    const firstWalls = generateWalls(width, height, 1);
+    setWalls(firstWalls);
+    setOrbs(generateOrbs(width, height, firstWalls, 1));
     setLevel(1);
     setScore(0);
     setTapsUsed(0);
@@ -277,32 +336,53 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   };
 
-  const saveHighScoreAndUpdate = async () => {
+  /* ---------- High‑Score Handling ---------- */
+
+  /* 1. Load saved list once on mount */
+  useEffect(() => {
+    (async () => {
+      const stored = await getHighScores();
+      setHighScores(stored);
+    })();
+  }, []);
+
+  /* 2. Save helper that accepts optional explicit numbers */
+  const saveHighScoreAndUpdate = async (newScore?: number, newLevel?: number) => {
     try {
-      const newScores = await saveHighScore(score, level);
-      setHighScores(newScores);
-    } catch (e) {
-      console.warn("Failed to save high score", e);
+      const s = typeof newScore === 'number' ? newScore : score;
+      const l = typeof newLevel === 'number' ? newLevel : level;
+      const updated = await saveHighScore(s, l);
+      setHighScores(updated);
+    } catch (err) {
+      console.warn('Failed to save high score', err);
     }
   };
 
+  /* ---------- Update score when orbs collected ---------- */
   useEffect(() => {
     const collected = orbs.filter(o => o.collected).length;
     if (score !== collected) setScore(collected);
   }, [orbs, score]);
 
+  /* ---------- Context Value ---------- */
   const value: GameContextValue = {
+    /* state */
     level, score, tapsUsed, walls, orbs, ripples, bursts, wallSparks,
     highScores, playerPoints, unlockedSkins, equippedSkin, canContinue,
-    muteOrbSound, muteMenuMusic, soundVolume, musicVolume, setSoundVolume, setMusicVolume,
+    muteOrbSound, muteMenuMusic, soundVolume, musicVolume,
     loading, nextLevel, levelUpPending,
     selectedWallColor, selectedOrbColor, selectedRippleColor, colorPanelOpen,
     gameOverAnim,
-    setLevel, setScore, setTapsUsed, setWalls, setOrbs, setRipples, setBursts,
-    setWallSparks, setHighScores, setPlayerPoints, setUnlockedSkins, setEquippedSkinState,
-    setCanContinue, setMuteOrbSound, setMuteMenuMusic, setLoading, setNextLevel,
-    setLevelUpPending, setSelectedWallColor, setSelectedOrbColor, setSelectedRippleColor,
-    setColorPanelOpen,
+    /* setters */
+    setSoundVolume: setSoundVolumeAndPersist,
+    setMusicVolume: setMusicVolumeAndPersist,
+    setLevel, setScore, setTapsUsed, setWalls, setOrbs, setRipples,
+    setBursts, setWallSparks, setHighScores, setPlayerPoints,
+    setUnlockedSkins, setEquippedSkinState, setCanContinue,
+    setMuteOrbSound, setMuteMenuMusic, setLoading, setNextLevel,
+    setLevelUpPending, setSelectedWallColor, setSelectedOrbColor,
+    setSelectedRippleColor, setColorPanelOpen,
+    /* game actions */
     startNewGame,
     saveHighScoreAndUpdate,
     playOrbSound,
@@ -310,6 +390,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     playWinSound,
     playLoseSound,
     toggleMenuMusic,
+    /* theme */
+    theme,
+    setTheme,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

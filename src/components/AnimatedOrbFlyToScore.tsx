@@ -1,109 +1,106 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
-import { Canvas, Circle, Image as SkiaImage, useImage, Group, Path, Skia } from '@shopify/react-native-skia';
-import { useSharedValue, withTiming, Easing } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import Animated, {
+  useSharedValue,
+  withTiming,
+  useAnimatedProps,
+  runOnJS,
+} from 'react-native-reanimated';
+import { Circle as SvgCircle } from 'react-native-svg';
+import { Image } from 'react-native';
+
+const AnimatedCircle = Animated.createAnimatedComponent(SvgCircle);
+const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 type Props = {
-  start: { x: number, y: number },
-  end: { x: number, y: number },
-  color: string,
-  onArrive?: () => void,
-  imageSrc?: any,
-  size?: number
+  start: { x: number, y: number };
+  end: { x: number, y: number };
+  color: string;
+  size: number;
+  onArrive: () => void;
+  imageSrc?: any; // <- Accept PNG skin
 };
 
-const duration = 650; // ms
-const trailLength = 22;
+const DURATION = 650;
+
+const OUTER_RADIUS = 7;
+const INNER_RADIUS = 2;
+const DOT_RADIUS = 1;
+const OUTER_OPACITY = 0.22;
+const INNER_OPACITY = 0.75;
 
 export default function AnimatedOrbFlyToScore({
-  start, end, color, onArrive, imageSrc, size = 20
+  start,
+  end,
+  color,
+  size,
+  onArrive,
+  imageSrc,
 }: Props) {
-  const t = useSharedValue(0);
-  const orbImage = useImage(imageSrc);
-  const [, setTick] = useState(0);
+  const cx = useSharedValue(start.x);
+  const cy = useSharedValue(start.y);
 
   useEffect(() => {
-    t.value = 0;
-    t.value = withTiming(
-      1,
-      { duration, easing: Easing.out(Easing.cubic) },
-      (finished) => {
-        if (finished && onArrive) onArrive();
-      }
-    );
-    const interval = setInterval(() => setTick(tick => tick + 1), 16);
-    return () => clearInterval(interval);
-  }, []);
+    cx.value = withTiming(end.x, { duration: DURATION });
+    cy.value = withTiming(end.y, { duration: DURATION }, (finished) => {
+      if (finished) runOnJS(onArrive)();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start.x, start.y, end.x, end.y]);
 
-  // Bezier
-  const cx = (start.x + end.x) / 2;
-  const cy = Math.min(start.y, end.y) - 90;
+  // For SVG: animatedProps for cx, cy
+  const animatedProps = useAnimatedProps(() => ({
+    cx: cx.value,
+    cy: cy.value,
+  }));
 
-  const tVal = t.value;
-  const u = 1 - tVal;
-  const posX = u * u * start.x + 2 * u * tVal * cx + tVal * tVal * end.x;
-  const posY = u * u * start.y + 2 * u * tVal * cy + tVal * tVal * end.y;
-  const scale = 1 - 0.4 * tVal;
-  const opacity = 1 - tVal;
+  // For Image: animated style for left/top (centered)
+  const animatedImgStyle = useAnimatedProps(() => ({
+    left: cx.value - size / 2,
+    top: cy.value - size / 2,
+    // You could add scale/opacity animation here if desired
+  }));
 
-  // Defensive trail
-  let trailPath = null;
-  const steps = trailLength;
-  const points: { x: number, y: number }[] = [];
-  for (let i = 0; i < steps; i++) {
-    const trailT = Math.max(0, tVal - (i / steps) * 0.15);
-    const uu = 1 - trailT;
-    const tx = uu * uu * start.x + 2 * uu * trailT * cx + trailT * trailT * end.x;
-    const ty = uu * uu * start.y + 2 * uu * trailT * cy + trailT * trailT * end.y;
-    points.push({ x: tx, y: ty });
-  }
-  if (points.length > 1) {
-    const path = Skia.Path.Make();
-    path.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      path.lineTo(points[i].x, points[i].y);
-    }
-    trailPath = path;
-  }
-
-  return (
-    <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
-      {trailPath && (
-        <Path
-          path={trailPath}
-          color={color}
-          style="stroke"
-          strokeWidth={size * 0.6}
-          opacity={opacity}
-        />
-      )}
-      <Group
-        transform={[
-          { translateX: posX },
-          { translateY: posY },
-          { scale: scale }
+  if (imageSrc) {
+    // Render the animated PNG skin
+    return (
+      <AnimatedImage
+        source={imageSrc}
+        style={[
+          {
+            position: 'absolute',
+            width: size,
+            height: size,
+            zIndex: 20,
+            pointerEvents: 'none',
+          },
+          animatedImgStyle as any, // as any: RN Animated doesn't type .left/.top well
         ]}
-        opacity={opacity}
-      >
-        {orbImage ? (
-          <SkiaImage
-            image={orbImage}
-            width={size}
-            height={size}
-            x={-size / 2}
-            y={-size / 2}
-          />
-        ) : (
-          <Circle
-            cx={0}
-            cy={0}
-            r={size / 2}
-            color={color}
-            opacity={0.97}
-            style="fill"
-          />
-        )}
-      </Group>
-    </Canvas>
+        resizeMode="contain"
+      />
+    );
+  }
+
+  // Fallback: Render the animated SVG orb
+  return (
+    <>
+      <AnimatedCircle
+        animatedProps={animatedProps}
+        r={OUTER_RADIUS}
+        fill={color}
+        fillOpacity={OUTER_OPACITY}
+      />
+      <AnimatedCircle
+        animatedProps={animatedProps}
+        r={INNER_RADIUS}
+        fill={color}
+        fillOpacity={INNER_OPACITY}
+      />
+      <AnimatedCircle
+        animatedProps={animatedProps}
+        r={DOT_RADIUS}
+        fill="#fff"
+        fillOpacity={1}
+      />
+    </>
   );
 }
