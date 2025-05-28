@@ -61,12 +61,13 @@ const MenuScreen: React.FC = () => {
       <TouchableOpacity style={styles.button} onPress={handleShowScores}>
         <Text style={styles.buttonText}>High Scores</Text>
       </TouchableOpacity>
+            <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Settings')}>
+            <Text style={styles.buttonText}>Settings</Text>
+        </TouchableOpacity>
       <TouchableOpacity style={styles.button} onPress={handleOpenShop}>
         <Text style={styles.buttonText}>Shop</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Settings')}>
-            <Text style={styles.buttonText}>Settings</Text>
-        </TouchableOpacity>
+
       {/* Credits / external links */}
       <TouchableOpacity onPress={() => Linking.openURL('http://dig.ccmixter.org/files/Kirkoid/68981')}>
         <Text style={[styles.credits, { textDecorationLine: 'underline', color: '#7bffde' }]}>

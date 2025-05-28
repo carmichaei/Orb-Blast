@@ -37,14 +37,21 @@ export default function App() {
   return (
     <GameProvider>
       <NavigationContainer>
-        <Stack.Navigator initialRouteName={initialRoute}>
+        <Stack.Navigator
+  initialRouteName={initialRoute}
+  screenOptions={{
+    headerShown: false,
+    gestureEnabled: false, // disables swipe back everywhere
+    animation: 'fade',     // or try: 'slide_from_bottom', 'fade_from_bottom', 'none'
+  }}
+>
           <Stack.Screen name="Tutorial" component={TutorialScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Menu" component={MenuScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Game" component={GameScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Scores" component={ScoresScreen} options={{ headerShown: false, title: 'High Scores' }} />
           <Stack.Screen name="Shop" component={ShopScreen} options={{ headerShown: false, title: 'Shop' }} />
           <Stack.Screen name="GameOver" component={GameOverScreen} options={{ headerShown: false, title: 'Game Over' }} />
-          <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }}/>
+          <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       </NavigationContainer>
     </GameProvider>

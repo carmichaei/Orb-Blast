@@ -10,6 +10,7 @@ import {
   getPlayerPoints, getEquippedSkin, getUnlockedSkins,
   saveHighScore
 } from '../utils/game';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface GameContextValue {
   level: number;
@@ -48,7 +49,7 @@ interface GameContextValue {
   setBursts(b: any[]): void;
   setWallSparks(s: any[]): void;
   setHighScores(h: { score: number; level: number }[]): void;
-  setPlayerPoints(p: number): void;
+  setPlayerPoints(p: number): void; // This will be the persistent setter
   setUnlockedSkins(u: string[]): void;
   setEquippedSkinState(skin: string): void;
   setCanContinue(c: boolean): void;
@@ -97,7 +98,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [bursts, setBursts] = useState<any[]>([]);
   const [wallSparks, setWallSparks] = useState<any[]>([]);
   const [highScores, setHighScores] = useState<{ score: number; level: number }[]>([]);
-  const [playerPoints, setPlayerPoints] = useState(0);
+  const [playerPoints, setPlayerPointsRaw] = useState(0); // "Raw" setter not for export
   const [unlockedSkins, setUnlockedSkins] = useState<string[]>([]);
   const [equippedSkin, setEquippedSkinState] = useState('default');
   const [canContinue, setCanContinue] = useState(false);
@@ -118,6 +119,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const winSoundRef = useRef<Audio.Sound | null>(null);
   const loseSoundRef = useRef<Audio.Sound | null>(null);
   const menuMusicRef = useRef<Audio.Sound | null>(null);
+  const POOL_SIZE = 4;
+  const orbPoolRef = useRef<Audio.Sound[]>([]);
+  const orbPoolNextRef = useRef(0);
 
   // --- Load all sounds on mount and unload on unmount ---
   useEffect(() => {
@@ -171,15 +175,29 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [muteMenuMusic, musicVolume]);
 
-  // --- Play sound utilities with volume ---
-  const playOrbSound = useCallback(() => {
-    if (muteOrbSound) return;
-    const orb = orbSoundRef.current;
-    if (orb) {
-      orb.setPositionAsync(0)
-        .then(() => orb.setVolumeAsync(soundVolume))
-        .then(() => orb.playAsync());
+  async function ensureOrbPool() {
+    if (orbPoolRef.current.length < POOL_SIZE) {
+      for (let i = orbPoolRef.current.length; i < POOL_SIZE; i++) {
+        const sound = new Audio.Sound();
+        await sound.loadAsync(require('../../assets/sounds/orb.mp3'));
+        orbPoolRef.current.push(sound);
+      }
     }
+  }
+
+  // --- Play sound utilities with volume ---
+  const playOrbSound = useCallback(async () => {
+    if (muteOrbSound) return;
+    await ensureOrbPool();
+    const idx = orbPoolNextRef.current;
+    orbPoolNextRef.current = (idx + 1) % POOL_SIZE;
+    const sound = orbPoolRef.current[idx];
+    try {
+      await sound.stopAsync();
+      await sound.setPositionAsync(0);
+      await sound.setVolumeAsync(soundVolume); // Use the context's soundVolume
+      await sound.playAsync();
+    } catch (e) {}
   }, [muteOrbSound, soundVolume]);
 
   const playWallSound = useCallback(() => {
@@ -232,10 +250,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // --- Persistent load ---
   useEffect(() => {
     (async () => {
-      setPlayerPoints((await getPlayerPoints()) || 0);
+      setPlayerPointsRaw((await getPlayerPoints()) || 0);
       setUnlockedSkins((await getUnlockedSkins()) || []);
       setEquippedSkinState((await getEquippedSkin()) || 'default');
     })();
+  }, []);
+
+  // PERSISTENT PLAYER POINTS SETTER
+  const setPlayerPoints = useCallback((p: number) => {
+    setPlayerPointsRaw(p);
+    AsyncStorage.setItem('PLAYER_POINTS', p.toString());
   }, []);
 
   const startNewGame = () => {

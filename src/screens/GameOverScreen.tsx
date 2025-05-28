@@ -1,17 +1,31 @@
 // src/screens/GameOverScreen.tsx
-import React, { useEffect } from 'react';
-import { View, Text, TouchableOpacity, Animated } from 'react-native';
-import { useNavigation, StackActions } from '@react-navigation/native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, Animated, Share } from 'react-native';
+import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
 import { useGame } from '../context/GameContext';
 import { styles } from '../styles';
 
 const GameOverScreen: React.FC = () => {
   const navigation = useNavigation<any>();
-  const game = useGame();
-  const {
-    score, level, gameOverAnim,
-    startNewGame, setCanContinue
-  } = game;
+  const route = useRoute<any>();
+  const { startNewGame, setCanContinue, setPlayerPoints, playerPoints, gameOverAnim } = useGame();
+
+  // Use score/level from params or fallback to context
+  const score = route.params?.score ?? 0;
+  const level = route.params?.level ?? 1;
+
+  // Bank score only once
+  const hasBanked = useRef(false);
+  const [bankedPoints, setBankedPoints] = useState(playerPoints);
+
+  useEffect(() => {
+  if (!hasBanked.current) {
+    const newPoints = playerPoints + score;
+    setPlayerPoints(newPoints);
+    setBankedPoints(newPoints); // Always show the true bank after update
+    hasBanked.current = true;
+  }
+  }, [score, setPlayerPoints, playerPoints]);
 
   // Animate the Game Over title in on mount
   useEffect(() => {
@@ -29,15 +43,13 @@ const GameOverScreen: React.FC = () => {
   };
 
   const handleRestart = () => {
-  startNewGame();
-  navigation.reset({ index: 0, routes: [{ name: 'Game' }] });
-};
-
+    startNewGame();
+    navigation.reset({ index: 0, routes: [{ name: 'Game' }] });
+  };
 
   const handleShare = () => {
     const message = `I scored ${score} points at level ${level} in Orb Blast! Can you beat me?`;
-    // Uncomment and implement share logic with Share API if needed.
-    // Share.share({ message });
+    Share.share({ message });
   };
 
   return (
@@ -58,6 +70,7 @@ const GameOverScreen: React.FC = () => {
       >
         <Text style={styles.gameOverTitle}>Game Over</Text>
         <Text style={styles.gameOverText}>Score: {score}   |   Level: {level}</Text>
+        <Text style={styles.gameOverText}>Total Points: {bankedPoints}</Text>
         <View style={styles.gameOverButtons}>
           <TouchableOpacity style={styles.button} onPress={handleMainMenu}>
             <Text style={styles.buttonText}>Main Menu</Text>

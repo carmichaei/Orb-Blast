@@ -26,7 +26,7 @@ import {
   Ripple,
   WallSpark,
   Burst,
-} from '../types';
+} from '../types'; // <- Orb type must include id: string | number and _pendingFlyToScore?: boolean
 import {
   getSegmentsForRadius,
   generateLimits,
@@ -39,6 +39,8 @@ import MemoOrbs from '../components/MemoOrbs';
 import InlineColorPickerPanel from '../components/InlineColorPickerPanel';
 import { styles } from '../styles';
 import { useGame } from '../context/GameContext';
+import FloatingMenu from '../components/FloatingMenu';
+import AnimatedOrbFlyToScore from '../components/AnimatedOrbFlyToScore';
 
 const { width, height } = Dimensions.get('window');
 function safeArray<T>(arr: T[] | undefined | null): T[] {
@@ -74,6 +76,16 @@ const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 const FADE_DURATION = 350;
 const LOADING_MIN_TIME = 1200;
+const SCORE_POS = { x: width / 2, y: 34 };
+
+type FlyingOrb = {
+  id: string | number;
+  start: { x: number, y: number };
+  end: { x: number, y: number };
+  color: string;
+  imageSrc?: any;
+  size?: number;
+};
 
 const GameScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -96,18 +108,52 @@ const GameScreen: React.FC = () => {
   const [selectedRippleColor, setSelectedRippleColor] = useState(safeArray(RIPPLE_COLORS)[0] || '#ccc');
   const [equippedSkin, setEquippedSkinState] = useState('default');
 
-  // NEW: Phase management for safe clean load
+  // For flying orbs
+  const [flyingOrbs, setFlyingOrbs] = useState<FlyingOrb[]>([]);
+
+  // For safe clean load
   const [loadingTrigger, setLoadingTrigger] = useState(false);
   const [cleaningUp, setCleaningUp] = useState(false);
 
-  const { playOrbSound } = useGame();
+  const { playOrbSound, startNewGame, setCanContinue, soundVolume } = useGame();
 
   // Animation refs
-  const uiFadeAnim = useRef(new Animated.Value(1)).current; // UI only
+  const uiFadeAnim = useRef(new Animated.Value(1)).current;
   const loadingOverlayAnim = useRef(new Animated.Value(0)).current;
   const barAnim = useRef(new Animated.Value(0)).current;
+  const [fadeOutVisible, setFadeOutVisible] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Latest refs
+  // Floating Menu & Pause
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [paused, setPaused] = useState(false);
+
+  function fadeToScreen(target: 'Menu' | 'Game') {
+    setFadeOutVisible(true);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 350,
+      useNativeDriver: true,
+    }).start(() => {
+      if (target === 'Game') {
+        startNewGame?.();
+        navigation.reset({ index: 0, routes: [{ name: 'Game' }] });
+      } else {
+        setCanContinue?.(false);
+        navigation.reset({ index: 0, routes: [{ name: 'Menu' }] });
+      }
+      fadeAnim.setValue(1);
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start(() => {
+        setFadeOutVisible(false);
+      });
+    });
+  }
+
+  // Latest refs for game loop
   const orbsRef = useRef(orbs);
   useEffect(() => { orbsRef.current = orbs; }, [orbs]);
   const ripplesRef = useRef(ripples);
@@ -122,8 +168,9 @@ const GameScreen: React.FC = () => {
     })();
   }, []);
 
-  // --- Animation/game loop (unchanged)
+  // --- Animation/game loop (now paused-aware)
   useEffect(() => {
+    if (paused) return;
     let frameId: number;
     const animate = () => {
       setRipples((prevRipples) => {
@@ -134,16 +181,12 @@ const GameScreen: React.FC = () => {
         for (const ripple of ripplesRef.current) {
           const targetSegments = getSegmentsForRadius(ripple.radius, ripple.segments);
           let updatedLimits = ripple.limits;
-
-          // Recompute limits when segments increase
           if (targetSegments > ripple.segments) {
             updatedLimits = generateLimits(
               ripple.x, ripple.y, targetSegments, width, height, wallsRef.current
             );
           }
-
           const newRadius = ripple.radius + 2;
-
           if (newRadius < Math.hypot(width, height)) {
             for (let j = 0; j < targetSegments; j++) {
               const limit = updatedLimits[j];
@@ -164,7 +207,6 @@ const GameScreen: React.FC = () => {
           }
         }
 
-        // Update sparks to match old animation style (faster sparks)
         setWallSparks((ws) =>
           ws
             .map(w => ({ ...w, radius: w.radius + .5, opacity: w.opacity - 0.1 }))
@@ -172,56 +214,57 @@ const GameScreen: React.FC = () => {
             .concat(newSparks)
             .slice(-50)
         );
-
-        // Orbs and bursts remain as your newer logic, as they're improvements
         setBursts((bs) =>
           bs
             .map(b => ({ ...b, radius: b.radius + 4, opacity: b.opacity - 0.07 }))
             .filter(b => b.opacity > 0)
             .slice(-40)
         );
-
         setOrbs((prevOrbs) => {
           let didUpdate = false;
           const newOrbs = prevOrbs.map((o) => {
             if (o.collected) return o;
             let hit = false;
-
             for (const r of ripplesRef.current) {
               const dist = Math.hypot(o.x - r.x, o.y - r.y);
               const angle = Math.atan2(o.y - r.y, o.x - r.x);
               const segIdx = Math.floor((((angle + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI)) * r.segments);
-
               if (dist <= r.radius && dist <= r.limits[segIdx]) {
                 hit = true;
                 break;
               }
             }
-
             if (hit) {
               didUpdate = true;
-              playOrbSound();
+              playOrbSound(soundVolume);
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setScore(s => s + 1);
-              setBursts(bs => [...bs, { x: o.x, y: o.y, radius: 0, opacity: 1 }].slice(-40));
-              return { ...o, collected: true };
+              setFlyingOrbs(arr => [
+                ...arr,
+                {
+                  id: o.id,
+                  start: { x: o.x, y: o.y },
+                  end: SCORE_POS,
+                  color: selectedOrbColor,
+                  imageSrc:
+                    equippedSkin !== 'default'
+                      ? (ORB_SKINS.find(s => s.key === equippedSkin)?.file)
+                      : undefined,
+                  size: 18,
+                }
+              ]);
+              return { ...o, collected: true, _pendingFlyToScore: true };
             }
-
             return o;
           });
-
           return didUpdate ? newOrbs : prevOrbs;
         });
-
         return nextRipples;
       });
-
       frameId = requestAnimationFrame(animate);
     };
-
     frameId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frameId);
-  }, [width, height, walls, playOrbSound]);
+  }, [width, height, walls, playOrbSound, paused, equippedSkin, selectedOrbColor]);
 
   // --- LEVEL TRANSITION TRIGGER ---
   useEffect(() => {
@@ -229,7 +272,6 @@ const GameScreen: React.FC = () => {
       setNextLevel(level + 1);
       setLoadingTrigger(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orbs]);
 
   // --- LEVEL TRANSITION PHASE 1: Clean up all FX first ---
@@ -244,8 +286,6 @@ const GameScreen: React.FC = () => {
       setLoading(true);
       barAnim.setValue(0);
       loadingOverlayAnim.setValue(0);
-
-      // Start loading overlay and bar
       Animated.parallel([
         Animated.timing(loadingOverlayAnim, {
           toValue: 1,
@@ -258,14 +298,11 @@ const GameScreen: React.FC = () => {
           useNativeDriver: false,
         }),
       ]).start();
-
-      // Phase 1: Clean up
       setCleaningUp(true);
       setRipples([]);
       setBursts([]);
       setWallSparks([]);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingTrigger]);
 
   // --- LEVEL TRANSITION PHASE 2: Wait until ALL cleared, then swap to next level ---
@@ -276,7 +313,6 @@ const GameScreen: React.FC = () => {
       bursts.length === 0 &&
       wallSparks.length === 0
     ) {
-      // All cleared. Advance after a safe timeout
       setTimeout(() => {
         const nextLvl = level + 1;
         const newWalls = safeArray(generateWalls(width, height, nextLvl));
@@ -297,23 +333,22 @@ const GameScreen: React.FC = () => {
         });
       }, LOADING_MIN_TIME);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleaningUp, ripples.length, bursts.length, wallSparks.length]);
 
-  // --- Game Over logic (unchanged)
+  // --- Game Over logic ---
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     if (tapsUsed >= MAX_TAPS && safeArray(orbs).some(o => !o.collected)) {
       timeout = setTimeout(() => {
-        navigation.navigate('GameOver');
+        navigation.navigate('GameOver', { score, level });
       }, 7000);
     }
     return () => clearTimeout(timeout);
   }, [tapsUsed, orbs, navigation]);
 
-  // --- Handle Screen Taps (unchanged)
+  // --- Handle Screen Taps ---
   const handlePress = useCallback((e: GestureResponderEvent) => {
-    if (loading || colorPanelOpen) return;
+    if (loading || colorPanelOpen || paused) return;
     if (tapsUsed >= MAX_TAPS) return;
     setTapsUsed(t => Math.min(t + 1, MAX_TAPS));
     const { locationX: x, locationY: y } = e.nativeEvent;
@@ -324,64 +359,65 @@ const GameScreen: React.FC = () => {
       segments: initSegments,
       limits: generateLimits(x, y, initSegments, width, height, wallsRef.current)
     }]);
-  }, [loading, colorPanelOpen, walls, tapsUsed]);
+  }, [loading, colorPanelOpen, walls, tapsUsed, paused]);
 
-  const onMenu = useCallback(() => {
-    navigation.navigate('Menu');
-  }, [navigation]);
-
-  const handleFadeComplete = useCallback((id: number) => {
-    setOrbs(currentOrbs => currentOrbs.filter(orb => orb.id !== id));
+  // --- When a flying orb animation completes ---
+  const handleFlyArrive = useCallback((id: string | number) => {
+    setScore(s => s + 1);
+    setOrbs(currentOrbs => currentOrbs.filter(orb => orb.id != id));
+    setFlyingOrbs(current => current.filter(f => f.id != id));
   }, []);
 
+  // --- Render ---
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="black" />
 
       {/* --- UI (Header/menu/buttons above game) --- */}
       <Animated.View
-  style={{
-    position: 'absolute', top: 0, left: 0, right: 0, opacity: uiFadeAnim, zIndex: 10
-  }}
-  pointerEvents="box-none"
->
-  <SafeAreaView edges={['top']} style={{ zIndex: 10 }}>
-    <View style={styles.topRowPanel}>
-      <View style={styles.panelBlur}>
-        <Text style={styles.scoreText}>
-          Lvl {level}  |  Score {score}  |  Taps {Math.max(0, MAX_TAPS - tapsUsed)}
-        </Text>
-      </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <TouchableOpacity
-          style={{ padding: 7, marginRight: 5, borderRadius: 8, backgroundColor: '#2b2d43cc' }}
-          onPress={() => setColorPanelOpen(open => !open)}>
-          <Text style={{ color: '#7bffde', fontSize: 23, fontWeight: 'bold' }}>🎨</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={{ padding: 7, borderRadius: 8, backgroundColor: '#2b2d43cc' }}
-          onPress={onMenu}>
-          <Text style={{ color: '#fff', fontSize: 28, fontWeight: 'bold', lineHeight: 28 }}>≡</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  </SafeAreaView>
-</Animated.View>
+        style={{
+          position: 'absolute', top: 0, left: 0, right: 0, opacity: uiFadeAnim, zIndex: 10
+        }}
+        pointerEvents="box-none"
+      >
+        <SafeAreaView edges={['top']} style={{ zIndex: 10 }}>
+          <View style={styles.topRowPanel}>
+            <View style={styles.panelBlur}>
+              <Text style={styles.scoreText}>
+                Lvl {level}  |  Score {score}  |  Taps {Math.max(0, MAX_TAPS - tapsUsed)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity
+                style={{ padding: 7, marginRight: 5, borderRadius: 8, backgroundColor: '#2b2d43cc' }}
+                onPress={() => setColorPanelOpen(open => !open)}>
+                <Text style={{ color: '#7bffde', fontSize: 23, fontWeight: 'bold' }}>🎨</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ padding: 7, borderRadius: 8, backgroundColor: '#2b2d43cc', marginLeft: 5 }}
+                onPress={() => { setMenuOpen(true); setPaused(true); }}
+              >
+                <Text style={{ color: '#fff', fontSize: 26, fontWeight: 'bold' }}>≡</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </Animated.View>
 
-{/* Color Picker Overlay - always full screen, above everything */}
-<InlineColorPickerPanel
-  visible={colorPanelOpen}
-  onClose={() => setColorPanelOpen(false)}
-  selectedWallColor={selectedWallColor}
-  setSelectedWallColor={setSelectedWallColor}
-  selectedOrbColor={selectedOrbColor}
-  setSelectedOrbColor={setSelectedOrbColor}
-  selectedRippleColor={selectedRippleColor}
-  setSelectedRippleColor={setSelectedRippleColor}
-  wallColors={safeArray(WALL_COLORS)}
-  orbColors={safeArray(ORB_COLORS)}
-  rippleColors={safeArray(RIPPLE_COLORS)}
-/>
+      {/* Color Picker Overlay */}
+      <InlineColorPickerPanel
+        visible={colorPanelOpen}
+        onClose={() => setColorPanelOpen(false)}
+        selectedWallColor={selectedWallColor}
+        setSelectedWallColor={setSelectedWallColor}
+        selectedOrbColor={selectedOrbColor}
+        setSelectedOrbColor={setSelectedOrbColor}
+        selectedRippleColor={selectedRippleColor}
+        setSelectedRippleColor={setSelectedRippleColor}
+        wallColors={safeArray(WALL_COLORS)}
+        orbColors={safeArray(ORB_COLORS)}
+        rippleColors={safeArray(RIPPLE_COLORS)}
+      />
 
       {/* --- Canvas: always running --- */}
       <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
@@ -431,32 +467,38 @@ const GameScreen: React.FC = () => {
           <Svg width={width} height={height}>
             {!loading && (
               <>
+                {/* Orbs (don't render orbs that are being animated as flying!) */}
                 {equippedSkin === 'default' && (
-                  <MemoOrbs orbs={orbs} color={selectedOrbColor} onFadeComplete={handleFadeComplete} />
+                  <MemoOrbs
+                    orbs={orbs.filter(o => !o.collected || o._pendingFlyToScore)}
+                    color={selectedOrbColor}
+                  />
                 )}
                 {equippedSkin !== 'default' && (
-                  safeArray(orbs).map(o => {
-                    if (o.collected) return null;
-                    const equippedSkinObj = ORB_SKINS.find(s => s.key === equippedSkin);
-                    if (!equippedSkinObj || !equippedSkinObj.file) return null;
-                    const pngSize = 18;
-                    return (
-                      <AnimatedImage
-                        key={o.id}
-                        source={equippedSkinObj.file}
-                        style={{
-                          position: 'absolute',
-                          left: o.x - pngSize / 2,
-                          top: o.y - pngSize / 2,
-                          width: pngSize,
-                          height: pngSize,
-                          opacity: 1,
-                          zIndex: 2,
-                        }}
-                        resizeMode="contain"
-                      />
-                    );
-                  })
+                  safeArray(orbs)
+                    .filter(o => !o.collected || o._pendingFlyToScore)
+                    .map(o => {
+                      if (o.collected) return null;
+                      const equippedSkinObj = ORB_SKINS.find(s => s.key === equippedSkin);
+                      if (!equippedSkinObj || !equippedSkinObj.file) return null;
+                      const pngSize = 18;
+                      return (
+                        <AnimatedImage
+                          key={o.id}
+                          source={equippedSkinObj.file}
+                          style={{
+                            position: 'absolute',
+                            left: o.x - pngSize / 2,
+                            top: o.y - pngSize / 2,
+                            width: pngSize,
+                            height: pngSize,
+                            opacity: 1,
+                            zIndex: 2,
+                          }}
+                          resizeMode="contain"
+                        />
+                      );
+                    })
                 )}
                 {safeArray(bursts).map((b, i) => (
                   <Circle
@@ -489,6 +531,19 @@ const GameScreen: React.FC = () => {
               </>
             )}
           </Svg>
+
+          {/* --- Flying Orbs Animation Overlay --- */}
+          {flyingOrbs.map(flying =>
+            <AnimatedOrbFlyToScore
+              key={flying.id}
+              start={flying.start}
+              end={flying.end}
+              color={flying.color}
+              onArrive={() => handleFlyArrive(flying.id)}
+              imageSrc={flying.imageSrc}
+              size={flying.size}
+            />
+          )}
         </View>
       </TouchableWithoutFeedback>
 
@@ -523,6 +578,23 @@ const GameScreen: React.FC = () => {
           </View>
         </Animated.View>
       )}
+
+      <FloatingMenu
+        visible={menuOpen}
+        onContinue={() => { setMenuOpen(false); setPaused(false); }}
+        onRestart={() => { setMenuOpen(false); setPaused(false); fadeToScreen('Game'); }}
+        onMainMenu={() => { setMenuOpen(false); setPaused(false); fadeToScreen('Menu'); }}
+      />
+
+      <Animated.View
+        pointerEvents={fadeOutVisible ? 'auto' : 'none'}
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: '#000',
+          opacity: fadeAnim,
+          zIndex: 9999,
+        }}
+      />
     </View>
   );
 };
