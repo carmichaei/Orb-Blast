@@ -1,4 +1,3 @@
-import { Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   SEGMENT_THRESHOLDS, MIN_WALLS, MIN_ORBS, ORB_RADIUS, TOP_INFOBAR_HEIGHT,
@@ -68,20 +67,16 @@ export function generateLimits(x: number, y: number, segments: number, width: nu
 export async function getEquippedSkin() {
   return await AsyncStorage.getItem(EQUIPPED_SKIN_KEY) || "default";
 }
-
 export async function setEquippedSkin(skinKey: string) {
   await AsyncStorage.setItem(EQUIPPED_SKIN_KEY, skinKey);
 }
-
 export async function getPlayerPoints() {
   const pts = await AsyncStorage.getItem(PLAYER_POINTS_KEY);
   return pts ? parseInt(pts) : 0;
 }
-
 export async function storePlayerPoints(pts: number) {
   await AsyncStorage.setItem(PLAYER_POINTS_KEY, pts.toString());
 }
-
 export async function unlockSkin(skinKey: string) {
   const prev = JSON.parse(await AsyncStorage.getItem(UNLOCKED_SKINS_KEY) || '[]');
   if (!prev.includes(skinKey)) {
@@ -89,11 +84,9 @@ export async function unlockSkin(skinKey: string) {
     await AsyncStorage.setItem(UNLOCKED_SKINS_KEY, JSON.stringify(prev));
   }
 }
-
 export async function getUnlockedSkins() {
   return JSON.parse(await AsyncStorage.getItem(UNLOCKED_SKINS_KEY) || '[]');
 }
-
 export async function saveHighScore(newScore: number, newLevel: number) {
   try {
     const raw = await AsyncStorage.getItem(HIGHSCORES_KEY);
@@ -108,7 +101,6 @@ export async function saveHighScore(newScore: number, newLevel: number) {
     return [];
   }
 }
-
 export async function getHighScores() {
   try {
     const raw = await AsyncStorage.getItem(HIGHSCORES_KEY);
@@ -123,11 +115,10 @@ export async function getHighScores() {
     return [];
   }
 }
-
 export async function clearHighScores() {
   try {
     await AsyncStorage.removeItem(HIGHSCORES_KEY);
-  } catch (e) {}
+  } catch (e) { }
 }
 
 export function generateWalls(width: number, height: number, level: number): Wall[] {
@@ -158,9 +149,11 @@ export function generateWalls(width: number, height: number, level: number): Wal
 }
 
 let globalOrbId = 1;
-export function generateOrbs(width: number, height: number, walls: Wall[], level: number): Orb[] {
+
+// Returns **plain** orb data. Animation state added by React component.
+export function generateOrbs(width: number, height: number, walls: any[], level: number): Omit<Orb, 'fade' | 'scale'>[] {
   const count = MIN_ORBS + Math.floor(level / 2);
-  const out: Orb[] = [];
+  const out: Omit<Orb, 'fade' | 'scale'>[] = [];
   let attempts = 0;
   const topOffset = TOP_INFOBAR_HEIGHT;
   while (out.length < count && attempts < count * 10) {
@@ -174,8 +167,6 @@ export function generateOrbs(width: number, height: number, walls: Wall[], level
     if (safe) out.push({
       id: globalOrbId++,
       x, y, radius: ORB_RADIUS, collected: false,
-      fade: new Animated.Value(1),
-      scale: new Animated.Value(1)
     });
   }
   return out;

@@ -151,5 +151,11 @@ tutorialText: {
   textAlign: 'center',
   marginBottom: 36,
 },
+colorRow: {
+  flexDirection: 'row',
+  marginBottom: 12,
+  justifyContent: 'flex-start',
+  flexWrap: 'wrap'
+},
 
 });

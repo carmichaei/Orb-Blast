@@ -1,49 +1,38 @@
 import React from 'react';
-import { Animated } from 'react-native';
-import { Circle } from 'react-native-svg';
-import { MemoOrbsProps } from '../types';
-import { getOrbAnimStyle } from './getOrbAnimStyle';
+import OrbAnimatedCircles from './OrbAnimatedCircles';
 
+// Define the types for your orb and animation map
+type Orb = {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  collected: boolean;
+};
 
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+type OrbAnim = {
+  fade: any; // You can specify this as SharedValue<number> if you import from 'react-native-reanimated'
+  scale: any;
+};
 
-const MemoOrbs = React.memo(
-  function MemoOrbs({ orbs, color }: MemoOrbsProps) {
-    return (
-      <>
-        {orbs.map(o => !o.collected && (
-          <React.Fragment key={o.id}>
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius + 7}
-              fill={color}
-              fillOpacity={0.22}
-              transform={getOrbAnimStyle(o).transform}
-            />
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius + 2}
-              fill={color}
-              fillOpacity={0.45}
-              transform={getOrbAnimStyle(o).transform}
-            />
-            <AnimatedCircle
-              cx={o.x}
-              cy={o.y}
-              r={o.radius}
-              fill="#fff"
-              fillOpacity={0.82}
-              opacity={o.fade}
-              transform={getOrbAnimStyle(o).transform}
-            />
-          </React.Fragment>
-        ))}
-      </>
-    );
-  },
-  (prev, next) => prev.color === next.color && prev.orbs === next.orbs
-);
+interface MemoOrbsProps {
+  orbs: Orb[];
+  orbAnimMap: { [id: string]: OrbAnim };
+  color: string;
+}
 
-export default MemoOrbs;
+export default function MemoOrbs({ orbs, orbAnimMap, color }: MemoOrbsProps) {
+  const safeOrbs = Array.isArray(orbs) ? orbs : [];
+  return (
+    <>
+      {safeOrbs.filter(o => !o.collected).map(o => (
+        <OrbAnimatedCircles
+          key={o.id}
+          orb={o}
+          anim={orbAnimMap[o.id]}
+          color={color}
+        />
+      ))}
+    </>
+  );
+}
