@@ -1,59 +1,69 @@
-// OrbAnimatedCircles.tsx
-import React from 'react';
-import Animated, { useAnimatedProps } from 'react-native-reanimated';
+import React, { useEffect } from 'react';
+import Animated, { useSharedValue, withTiming, useAnimatedProps, runOnJS } from 'react-native-reanimated';
 import { Circle } from 'react-native-svg';
 
-type Orb = {
-  id: string;
-  x: number;
-  y: number;
-  radius: number;
-  collected: boolean;
-};
-
-type OrbAnim = {
-  fade: any; // Should be SharedValue<number>
-  scale: any; // Should be SharedValue<number>
-};
-
-type OrbAnimatedCirclesProps = {
-  orb: Orb;
-  anim: OrbAnim;
+type OrbProps = {
+  orb: {
+    id: number;
+    x: number;
+    y: number;
+    radius: number;
+    collected: boolean;
+  };
   color: string;
+  onFadeComplete: (id: number) => void;
 };
 
-export default function OrbAnimatedCircles({ orb, anim, color }: OrbAnimatedCirclesProps) {
+export default function OrbAnimatedCircles({ orb, color, onFadeComplete }: OrbProps) {
   const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+  const fade = useSharedValue(1);
+
+  useEffect(() => {
+    if (orb.collected) {
+      fade.value = withTiming(0, { duration: 320 }, (finished) => {
+        if (finished) {
+          runOnJS(onFadeComplete)(orb.id);
+        }
+      });
+    }
+  }, [orb.collected]);
+
+  const orbX = orb.x;
+  const orbY = orb.y;
+  const orbRadius = orb.radius;
 
   const animatedPropsOuter = useAnimatedProps(() => ({
-    cx: orb.x,
-    cy: orb.y,
-    r: orb.radius + 7,
+    cx: orbX,
+    cy: orbY,
+    r: orbRadius + 7,
     fillOpacity: 0.22,
-    opacity: anim?.fade?.value ?? 1,
-  }));
-
-  const animatedPropsMiddle = useAnimatedProps(() => ({
-    cx: orb.x,
-    cy: orb.y,
-    r: orb.radius + 2,
-    fillOpacity: 0.45,
-    opacity: anim?.fade?.value ?? 1,
+    opacity: fade.value,
   }));
 
   const animatedPropsCore = useAnimatedProps(() => ({
-    cx: orb.x,
-    cy: orb.y,
-    r: orb.radius * (anim?.scale?.value ?? 1),
-    fillOpacity: 0.82,
-    opacity: anim?.fade?.value ?? 1,
+    cx: orbX,
+    cy: orbY,
+    r: orbRadius,
+    fillOpacity: 0.93,
+    opacity: fade.value,
+  }));
+
+  const animatedPropsDot = useAnimatedProps(() => ({
+    cx: orbX,
+    cy: orbY,
+    r: 3.2,
+    fillOpacity: 0.87,
+    opacity: fade.value,
   }));
 
   return (
     <>
       <AnimatedCircle animatedProps={animatedPropsOuter} fill={color} />
-      <AnimatedCircle animatedProps={animatedPropsMiddle} fill={color} />
-      <AnimatedCircle animatedProps={animatedPropsCore} fill="#fff" />
+      <AnimatedCircle animatedProps={animatedPropsCore} fill={color} />
+      {/* Small white dot in the center */}
+      {!orb.collected && (
+        <AnimatedCircle animatedProps={animatedPropsDot} fill="#fff" />
+      )}
     </>
   );
 }

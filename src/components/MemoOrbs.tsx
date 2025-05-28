@@ -1,36 +1,30 @@
 import React from 'react';
 import OrbAnimatedCircles from './OrbAnimatedCircles';
 
-// Define the types for your orb and animation map
-type Orb = {
-  id: string;
+export interface Orb {
+  id: number;
   x: number;
   y: number;
   radius: number;
   collected: boolean;
-};
-
-type OrbAnim = {
-  fade: any; // You can specify this as SharedValue<number> if you import from 'react-native-reanimated'
-  scale: any;
-};
+}
 
 interface MemoOrbsProps {
   orbs: Orb[];
-  orbAnimMap: { [id: string]: OrbAnim };
   color: string;
+  onFadeComplete: (id: number) => void;
 }
 
-export default function MemoOrbs({ orbs, orbAnimMap, color }: MemoOrbsProps) {
-  const safeOrbs = Array.isArray(orbs) ? orbs : [];
+export default function MemoOrbs({ orbs, color, onFadeComplete }: MemoOrbsProps) {
+  // Always render all orbs, so collected orbs can animate out before being removed from state
   return (
     <>
-      {safeOrbs.filter(o => !o.collected).map(o => (
+      {orbs.map(o => (
         <OrbAnimatedCircles
           key={o.id}
           orb={o}
-          anim={orbAnimMap[o.id]}
           color={color}
+          onFadeComplete={onFadeComplete}
         />
       ))}
     </>

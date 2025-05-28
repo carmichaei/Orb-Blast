@@ -1,4 +1,5 @@
 import { SharedValue } from 'react-native-reanimated';
+import { Animated } from 'react-native';
 
 export type Wall = { x: number; y: number; width: number; height: number };
 
@@ -8,9 +9,7 @@ export type Orb = {
   y: number;
   radius: number;
   collected: boolean;
-  fade: SharedValue<number>;   // <<== Updated
-  scale: SharedValue<number>;  // <<== Updated
-};
+}
 
 export type HighScoreEntry = { score: number; level: number };
 
@@ -47,8 +46,3 @@ export type Burst = {
   opacity: number;
 };
 
-export type MemoOrbsProps = {
-  orbs: Orb[];
-  orbAnimMap: { [id: string]: { fade: any; scale: any } };
-  color: string;
-};
