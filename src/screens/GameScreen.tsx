@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { GestureResponderEvent } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   WALL_COLORS, ORB_COLORS, RIPPLE_COLORS,
@@ -112,6 +113,19 @@ const GameScreen: React.FC = () => {
   const [selectedOrbColor, setSelectedOrbColor] = useState(safeArray(ORB_COLORS)[0] || '#ccc');
   const [selectedRippleColor, setSelectedRippleColor] = useState(safeArray(RIPPLE_COLORS)[0] || '#ccc');
   const [equippedSkin, setEquippedSkinState] = useState('default');
+
+    // ─── Load saved colours once on mount ─────────────────
+  useEffect(() => {
+    (async () => {
+      const w = await AsyncStorage.getItem('GAME_WALL_COLOR');
+      if (w) setSelectedWallColor(w);
+      const o = await AsyncStorage.getItem('GAME_ORB_COLOR');
+      if (o) setSelectedOrbColor(o);
+      const r = await AsyncStorage.getItem('GAME_RIPPLE_COLOR');
+      if (r) setSelectedRippleColor(r);
+    })();
+  }, []);
+
 
   
   // Light/dark gradient colors for background
@@ -391,6 +405,25 @@ const GameScreen: React.FC = () => {
     setFlyingOrbs(current => current.filter(f => f.id !== id));
   }, []);
 
+
+    // ─── Persist colour whenever changed ──────────────────
+  const onWallColorChange = useCallback(async (color: string) => {
+    setSelectedWallColor(color);
+    await AsyncStorage.setItem('GAME_WALL_COLOR', color);
+  }, []);
+
+  const onOrbColorChange = useCallback(async (color: string) => {
+    setSelectedOrbColor(color);
+    await AsyncStorage.setItem('GAME_ORB_COLOR', color);
+  }, []);
+
+  const onRippleColorChange = useCallback(async (color: string) => {
+    setSelectedRippleColor(color);
+    await AsyncStorage.setItem('GAME_RIPPLE_COLOR', color);
+  }, []);
+
+
+
   // --- Render ---
   return (
     <View style={[globalStyles.container, { backgroundColor: palette.background }]}>
@@ -451,18 +484,18 @@ const GameScreen: React.FC = () => {
 
       {/* Color Picker */}
       <InlineColorPickerPanel
-        visible={colorPanelOpen}
-        onClose={() => setColorPanelOpen(false)}
-        selectedWallColor={selectedWallColor}
-        setSelectedWallColor={setSelectedWallColor}
-        selectedOrbColor={selectedOrbColor}
-        setSelectedOrbColor={setSelectedOrbColor}
-        selectedRippleColor={selectedRippleColor}
-        setSelectedRippleColor={setSelectedRippleColor}
-        wallColors={safeArray(WALL_COLORS)}
-        orbColors={safeArray(ORB_COLORS)}
-        rippleColors={safeArray(RIPPLE_COLORS)}
-      />
+  visible={colorPanelOpen}
+  onClose={() => setColorPanelOpen(false)}
+  selectedWallColor={selectedWallColor}
+  setSelectedWallColor={onWallColorChange}
+  selectedOrbColor={selectedOrbColor}
+  setSelectedOrbColor={onOrbColorChange}
+  selectedRippleColor={selectedRippleColor}
+  setSelectedRippleColor={onRippleColorChange}
+  wallColors={safeArray(WALL_COLORS)}
+  orbColors={safeArray(ORB_COLORS)}
+  rippleColors={safeArray(RIPPLE_COLORS)}
+/>
 
       {/* Game Board (SVG) */}
       <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
