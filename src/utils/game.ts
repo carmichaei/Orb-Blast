@@ -152,10 +152,12 @@ let globalOrbId = 1;
 
 // Returns **plain** orb data. Animation state added by React component.
 export function generateOrbs(width: number, height: number, walls: any[], level: number): Omit<Orb, 'fade' | 'scale'>[] {
-  const count = MIN_ORBS + Math.floor(level / 2);
+  // Slower, capped progression for endless mode
+  const count = Math.min(MIN_ORBS + Math.floor(level / 5), MIN_ORBS + 6);
   const out: Omit<Orb, 'fade' | 'scale'>[] = [];
   let attempts = 0;
   const topOffset = 100; // Orbs won't spawn within 100px of the top
+
   while (out.length < count && attempts < count * 10) {
     attempts++;
     const x = ORB_RADIUS + Math.random() * (width - 2 * ORB_RADIUS);

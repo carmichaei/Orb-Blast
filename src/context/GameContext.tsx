@@ -13,6 +13,7 @@ import {
   getPlayerPoints, getEquippedSkin, getUnlockedSkins,
   getHighScores, saveHighScore       //  ← added getHighScores import
 } from '../utils/game';
+import { PLAYER_POINTS_KEY } from '../constants';
 
 /* ---------- Theme ---------- */
 export type ThemeType = 'dark' | 'light';
@@ -317,7 +318,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setPlayerPoints = useCallback((pts: number) => {
     setPlayerPointsRaw(pts);
-    AsyncStorage.setItem('PLAYER_POINTS', pts.toString());
+    AsyncStorage.setItem('PLAYER_POINTS_KEY', pts.toString());
   }, []);
 
   /* ---------- New Game ---------- */

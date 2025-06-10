@@ -2,7 +2,7 @@
   "expo": {
     "name": "ORB BLAST",
     "slug": "orb-blast",
-    "version": "3.2.5",
+    "version": "3.3.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -16,7 +16,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "10",
+      "buildNumber": "13",
       "bundleIdentifier": "com.carmichaeldivision.orbblast",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
